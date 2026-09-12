@@ -50,7 +50,7 @@ The recommended Linux server workflow is:
 ```sh
 git clone https://github.com/0xfnzero/robinhood-feed-benchmark.git
 cd robinhood-feed-benchmark
-cp .env.example .env
+cp .env.copy .env
 # Optionally configure a custom Feed; leave it empty for the official Feed only.
 ./run-feed-comparison.sh
 ```
@@ -74,7 +74,7 @@ Feed with no configuration.
 To compare a custom Feed:
 
 ```sh
-cp .env.example .env
+cp .env.copy .env
 # Set FEED_NAME_1, FEED_URL_1, and optionally FEED_TOKEN_1.
 ./run-feed-comparison.sh
 ```
@@ -102,7 +102,7 @@ only custom endpoints.
 ## Environment configuration
 
 ```sh
-cp .env.example .env
+cp .env.copy .env
 # Edit .env, then:
 ./run-feed-comparison.sh
 ```
@@ -133,7 +133,7 @@ The official Feed remains endpoint 1 unless `--official=false` is supplied.
 Maintainers can cross-compile all four supported platforms in one command:
 
 ```sh
-VERSION=v0.1.0 ./compile.sh
+VERSION=v0.1.1 ./compile.sh
 ```
 
 `release/` will contain `install.sh`, four platform archives, and

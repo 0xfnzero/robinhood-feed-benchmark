@@ -39,7 +39,7 @@ Linux 服务器推荐直接克隆仓库：
 ```sh
 git clone https://github.com/0xfnzero/robinhood-feed-benchmark.git
 cd robinhood-feed-benchmark
-cp .env.example .env
+cp .env.copy .env
 # 可选：在 .env 中填写自己的 Feed；留空则只测试官方 Feed
 ./run-feed-comparison.sh
 ```
@@ -63,7 +63,7 @@ cd "$HOME/robinhood-feed-benchmark"
 对比自己的 Feed 时只需：
 
 ```sh
-cp .env.example .env
+cp .env.copy .env
 # 在 .env 中填写 FEED_NAME_1、FEED_URL_1 和可选的 FEED_TOKEN_1
 ./run-feed-comparison.sh
 ```
@@ -113,7 +113,7 @@ make build
 创建本地配置：
 
 ```sh
-cp .env.example .env
+cp .env.copy .env
 ```
 
 填写自己的 Feed 后运行：
@@ -141,7 +141,7 @@ Token 建议只放在未提交的 `.env` 或进程环境中，不要放进 URL �
 维护者可以一次生成四个平台的预编译包：
 
 ```sh
-VERSION=v0.1.0 ./compile.sh
+VERSION=v0.1.1 ./compile.sh
 ```
 
 产物位于 `release/`：
@@ -155,7 +155,8 @@ robinhood-feed-benchmark-aarch64-unknown-linux-gnu.tar.gz
 SHA256SUMS
 ```
 
-压缩包已经包含平台二进制、`run-feed-comparison.sh`、`.env.example` 和说明文档。
+压缩包已经包含平台二进制、`run-feed-comparison.sh`、`.env.copy`、`.env.example`
+和说明文档。
 将这些文件作为 GitHub Release assets 上传后，普通用户即可使用上面的安装命令。
 
 在发布前可以直接验证本地包：
