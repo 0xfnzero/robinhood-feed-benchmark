@@ -148,7 +148,7 @@ FEED_COMPARISON_DURATION=45s
 维护者可以一次生成四个平台的预编译包：
 
 ```sh
-VERSION=v0.1.4 ./compile.sh
+VERSION=v0.1.5 ./compile.sh
 ```
 
 产物位于 `release/`：

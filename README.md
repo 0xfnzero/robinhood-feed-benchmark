@@ -139,7 +139,7 @@ The official Feed remains endpoint 1 unless disabled via that env var or
 Maintainers can cross-compile all four supported platforms in one command:
 
 ```sh
-VERSION=v0.1.4 ./compile.sh
+VERSION=v0.1.5 ./compile.sh
 ```
 
 `release/` will contain `install.sh`, four platform archives, and

@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"io"
 	"net"
 	"net/http"
 	"net/url"
@@ -114,10 +115,11 @@ func Run(ctx context.Context, endpoint Endpoint, maxAge time.Duration, output ch
 
 func dial(ctx context.Context, endpoint Endpoint) (*websocket.Conn, *http.Response, error) {
 	dialer := websocket.Dialer{
-		Proxy:            http.ProxyFromEnvironment,
-		HandshakeTimeout: 10 * time.Second,
-		ReadBufferSize:   512 << 10,
-		WriteBufferSize:  64 << 10,
+		Proxy:             http.ProxyFromEnvironment,
+		HandshakeTimeout:  10 * time.Second,
+		ReadBufferSize:    512 << 10,
+		WriteBufferSize:   64 << 10,
+		EnableCompression: true, // Official Nitro Feed requires permessage-deflate via Cloudflare.
 		NetDialContext: func(ctx context.Context, network, address string) (net.Conn, error) {
 			var d net.Dialer
 			conn, err := d.DialContext(ctx, network, address)
@@ -136,7 +138,24 @@ func dial(ctx context.Context, endpoint Endpoint) (*websocket.Conn, *http.Respon
 	if endpoint.Token != "" {
 		headers.Set("Authorization", "Bearer "+endpoint.Token)
 	}
-	return dialer.DialContext(ctx, endpoint.URL, headers)
+	conn, resp, err := dialer.DialContext(ctx, endpoint.URL, headers)
+	if err != nil {
+		return nil, resp, handshakeError(endpoint.Name, resp, err)
+	}
+	return conn, resp, nil
+}
+
+func handshakeError(name string, resp *http.Response, err error) error {
+	if resp == nil {
+		return err
+	}
+	defer resp.Body.Close()
+	body, _ := io.ReadAll(io.LimitReader(resp.Body, 512))
+	detail := strings.TrimSpace(string(body))
+	if detail == "" {
+		return fmt.Errorf("%s handshake failed: %w (HTTP %s)", name, err, resp.Status)
+	}
+	return fmt.Errorf("%s handshake failed: %w (HTTP %s: %s)", name, err, resp.Status, detail)
 }
 
 func consume(ctx context.Context, name string, connection *websocket.Conn, maxAge time.Duration, output chan<- Update) (bool, error) {
