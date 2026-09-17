@@ -1,6 +1,8 @@
 package benchmark
 
 import (
+	"fmt"
+	"io"
 	"sort"
 	"time"
 
@@ -19,6 +21,7 @@ type eventKey struct {
 }
 
 type pendingEvent struct {
+	key      eventKey
 	arrivals map[string]time.Time
 }
 
@@ -33,7 +36,10 @@ type endpointState struct {
 	bytes           int64
 	matched         int
 	wins            int
-	lags            []time.Duration
+	lags            []time.Duration // lag vs earliest (includes 0 for winners)
+	behindLags      []time.Duration // lag only when strictly behind
+	totalLag        time.Duration
+	behindLagTotal  time.Duration
 	feedAges        []time.Duration
 	seen            *deduper
 	lastError       string
@@ -49,6 +55,24 @@ type Runner struct {
 	globalSeen  *deduper
 	unique      int
 	common      int
+	nameWidth   int
+}
+
+// Arrival is one endpoint's arrival for a matched common event.
+type Arrival struct {
+	Name    string
+	At      time.Time
+	Lag     time.Duration
+	First   bool
+	Winner  string // earliest endpoint name (may tie)
+}
+
+// MatchEvent is emitted when every endpoint has seen the same sequencer message.
+type MatchEvent struct {
+	Sequence  uint64
+	BlockHash string
+	Winner    string
+	Arrivals  []Arrival
 }
 
 type EndpointReport struct {
@@ -66,6 +90,7 @@ type EndpointReport struct {
 	Wins            int     `json:"wins"`
 	WinRatePct      float64 `json:"win_rate_pct"`
 	MeanLagMS       float64 `json:"mean_lag_ms"`
+	BehindMeanLagMS float64 `json:"behind_mean_lag_ms"`
 	P50LagMS        float64 `json:"p50_lag_ms"`
 	P95LagMS        float64 `json:"p95_lag_ms"`
 	P99LagMS        float64 `json:"p99_lag_ms"`
@@ -90,19 +115,27 @@ func New(config Config, startedAt time.Time) *Runner {
 		config.MaxTracked = 100_000
 	}
 	states := make(map[string]*endpointState, len(config.EndpointNames))
+	nameWidth := 0
 	for _, name := range config.EndpointNames {
 		states[name] = &endpointState{name: name, seen: newDeduper(config.MaxTracked)}
+		if len(name) > nameWidth {
+			nameWidth = len(name)
+		}
 	}
 	return &Runner{
 		config: config, startedAt: startedAt, states: states,
 		pending: make(map[eventKey]*pendingEvent), globalSeen: newDeduper(config.MaxTracked),
+		nameWidth: nameWidth,
 	}
 }
 
-func (r *Runner) Add(update feed.Update) {
+func (r *Runner) NameWidth() int { return r.nameWidth }
+
+// Add processes an update. When a common event is completed, returns the match details.
+func (r *Runner) Add(update feed.Update) *MatchEvent {
 	state := r.states[update.Endpoint]
 	if state == nil {
-		return
+		return nil
 	}
 	switch update.Kind {
 	case feed.UpdateConnected:
@@ -116,14 +149,15 @@ func (r *Runner) Add(update feed.Update) {
 			state.lastError = update.Err.Error()
 		}
 	case feed.UpdateObservation:
-		r.addObservation(state, update)
+		return r.addObservation(state, update)
 	}
+	return nil
 }
 
-func (r *Runner) addObservation(state *endpointState, update feed.Update) {
+func (r *Runner) addObservation(state *endpointState, update feed.Update) *MatchEvent {
 	key := eventKey{sequence: update.Sequence, blockHash: update.BlockHash}
 	if !state.seen.Add(key) {
-		return
+		return nil
 	}
 	state.observed++
 	state.lastObservation = update.At
@@ -138,35 +172,58 @@ func (r *Runner) addObservation(state *endpointState, update feed.Update) {
 
 	event := r.pending[key]
 	if event == nil {
-		event = &pendingEvent{arrivals: make(map[string]time.Time, len(r.states))}
+		event = &pendingEvent{key: key, arrivals: make(map[string]time.Time, len(r.states))}
 		r.pending[key] = event
 		r.pendingKeys = append(r.pendingKeys, key)
 	}
 	event.arrivals[state.name] = update.At
+	var match *MatchEvent
 	if len(event.arrivals) == len(r.states) {
-		r.finalize(event)
+		match = r.finalize(event)
 		delete(r.pending, key)
 	}
 	r.prune()
+	return match
 }
 
-func (r *Runner) finalize(event *pendingEvent) {
+func (r *Runner) finalize(event *pendingEvent) *MatchEvent {
 	earliest := time.Time{}
-	for _, arrival := range event.arrivals {
+	winner := ""
+	for name, arrival := range event.arrivals {
 		if earliest.IsZero() || arrival.Before(earliest) {
 			earliest = arrival
+			winner = name
 		}
 	}
+	arrivals := make([]Arrival, 0, len(event.arrivals))
 	for name, arrival := range event.arrivals {
 		state := r.states[name]
 		lag := arrival.Sub(earliest)
 		state.matched++
 		state.lags = append(state.lags, lag)
-		if lag <= r.config.TieTolerance {
+		state.totalLag += lag
+		first := lag <= r.config.TieTolerance
+		if first {
 			state.wins++
+		} else {
+			state.behindLags = append(state.behindLags, lag)
+			state.behindLagTotal += lag
 		}
+		arrivals = append(arrivals, Arrival{
+			Name: name, At: arrival, Lag: lag, First: first, Winner: winner,
+		})
 	}
+	sort.Slice(arrivals, func(i, j int) bool {
+		if arrivals[i].Lag != arrivals[j].Lag {
+			return arrivals[i].Lag < arrivals[j].Lag
+		}
+		return arrivals[i].Name < arrivals[j].Name
+	})
 	r.common++
+	return &MatchEvent{
+		Sequence: event.key.sequence, BlockHash: event.key.blockHash,
+		Winner: winner, Arrivals: arrivals,
+	}
 }
 
 func (r *Runner) prune() {
@@ -189,8 +246,8 @@ func (r *Runner) prune() {
 
 func (r *Runner) Snapshot(now time.Time) Report {
 	report := Report{
-		StartedAt:   r.startedAt.UTC().Format(time.RFC3339Nano),
-		FinishedAt:  now.UTC().Format(time.RFC3339Nano),
+		StartedAt: r.startedAt.UTC().Format(time.RFC3339Nano),
+		FinishedAt: now.UTC().Format(time.RFC3339Nano),
 		DurationSec: now.Sub(r.startedAt).Seconds(), UniqueEvents: r.unique, CommonEvents: r.common,
 	}
 	for _, state := range r.states {
@@ -207,11 +264,14 @@ func (r *Runner) Snapshot(now time.Time) Report {
 		}
 		if state.matched > 0 {
 			item.WinRatePct = float64(state.wins) * 100 / float64(state.matched)
-			item.MeanLagMS = mean(state.lags) / float64(time.Millisecond)
+			item.MeanLagMS = float64(state.totalLag) / float64(state.matched) / float64(time.Millisecond)
 			item.P50LagMS = percentile(state.lags, 0.50) / float64(time.Millisecond)
 			item.P95LagMS = percentile(state.lags, 0.95) / float64(time.Millisecond)
 			item.P99LagMS = percentile(state.lags, 0.99) / float64(time.Millisecond)
 			item.MaxLagMS = percentile(state.lags, 1) / float64(time.Millisecond)
+		}
+		if len(state.behindLags) > 0 {
+			item.BehindMeanLagMS = float64(state.behindLagTotal) / float64(len(state.behindLags)) / float64(time.Millisecond)
 		}
 		item.MedianFeedAgeMS = percentile(state.feedAges, 0.50) / float64(time.Millisecond)
 		item.MedianConnectMS = percentile(state.connectTimes, 0.50) / float64(time.Millisecond)
@@ -222,14 +282,11 @@ func (r *Runner) Snapshot(now time.Time) Report {
 	}
 	sort.Slice(report.Endpoints, func(i, j int) bool {
 		left, right := report.Endpoints[i], report.Endpoints[j]
-		if left.Matched != right.Matched {
-			return left.Matched > right.Matched
+		if left.WinRatePct != right.WinRatePct {
+			return left.WinRatePct > right.WinRatePct
 		}
 		if left.P50LagMS != right.P50LagMS {
 			return left.P50LagMS < right.P50LagMS
-		}
-		if left.P95LagMS != right.P95LagMS {
-			return left.P95LagMS < right.P95LagMS
 		}
 		return left.Name < right.Name
 	})
@@ -239,15 +296,25 @@ func (r *Runner) Snapshot(now time.Time) Report {
 	return report
 }
 
-func mean(values []time.Duration) float64 {
-	if len(values) == 0 {
-		return 0
+// WriteMatchEvent prints one common event in grpc-benchmark style.
+func WriteMatchEvent(w io.Writer, match *MatchEvent, nameWidth int) {
+	if match == nil || len(match.Arrivals) == 0 {
+		return
 	}
-	var total float64
-	for _, value := range values {
-		total += float64(value)
+	if nameWidth < 8 {
+		nameWidth = 8
 	}
-	return total / float64(len(values))
+	for _, arrival := range match.Arrivals {
+		ts := arrival.At.Format("15:04:05.000")
+		name := fmt.Sprintf("%-*s", nameWidth, arrival.Name)
+		if arrival.First {
+			fmt.Fprintf(w, "[%s] %s 接收 seq %d: 首次接收\n", ts, name, match.Sequence)
+			continue
+		}
+		ms := float64(arrival.Lag) / float64(time.Millisecond)
+		fmt.Fprintf(w, "[%s] %s 接收 seq %d: 延迟 %6.2fms (相对于 %s)\n",
+			ts, name, match.Sequence, ms, match.Winner)
+	}
 }
 
 func percentile(values []time.Duration, quantile float64) float64 {

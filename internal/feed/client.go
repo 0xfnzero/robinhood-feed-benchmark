@@ -81,7 +81,7 @@ func Run(ctx context.Context, endpoint Endpoint, maxAge time.Duration, output ch
 			_ = response.Body.Close()
 		}
 		if err != nil {
-			if !send(ctx, output, Update{Kind: UpdateDisconnected, Endpoint: endpoint.Name, At: time.Now(), Err: errors.New("connection failed")}) {
+			if !send(ctx, output, Update{Kind: UpdateDisconnected, Endpoint: endpoint.Name, At: time.Now(), Err: fmt.Errorf("connection failed: %w", err)}) {
 				return
 			}
 			if !wait(ctx, delay) {
@@ -114,7 +114,25 @@ func Run(ctx context.Context, endpoint Endpoint, maxAge time.Duration, output ch
 }
 
 func dial(ctx context.Context, endpoint Endpoint) (*websocket.Conn, *http.Response, error) {
-	dialer := *websocket.DefaultDialer
+	dialer := websocket.Dialer{
+		Proxy:            http.ProxyFromEnvironment,
+		HandshakeTimeout: 10 * time.Second,
+		ReadBufferSize:   512 << 10,
+		WriteBufferSize:  64 << 10,
+		NetDialContext: func(ctx context.Context, network, address string) (net.Conn, error) {
+			var d net.Dialer
+			conn, err := d.DialContext(ctx, network, address)
+			if err != nil {
+				return nil, err
+			}
+			if tcp, ok := conn.(*net.TCPConn); ok {
+				_ = tcp.SetNoDelay(true)
+				_ = tcp.SetReadBuffer(4 << 20)
+				_ = tcp.SetWriteBuffer(1 << 20)
+			}
+			return conn, nil
+		},
+	}
 	headers := http.Header{clientVersionHeader: []string{"2"}}
 	if endpoint.Token != "" {
 		headers.Set("Authorization", "Bearer "+endpoint.Token)
@@ -140,16 +158,18 @@ func consume(ctx context.Context, name string, connection *websocket.Conn, maxAg
 			return progress, err
 		}
 		messageType, payload, err := connection.ReadMessage()
+		// Timestamp immediately after the full WebSocket frame is available.
+		receivedAt := time.Now()
 		if err != nil {
 			return progress, errors.New("connection closed")
 		}
 		if messageType != websocket.TextMessage && messageType != websocket.BinaryMessage {
 			continue
 		}
-		receivedAt := time.Now()
 		observations, err := DecodeObservations(payload)
 		if err != nil {
-			return progress, err
+			// Skip malformed frames instead of tearing down the whole connection.
+			continue
 		}
 		progress = true
 		for index, observation := range observations {

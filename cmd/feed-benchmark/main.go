@@ -52,6 +52,7 @@ type options struct {
 	official       bool
 	officialName   string
 	officialURL    string
+	perEvent       bool
 	feedValues     stringList
 	tokenValues    stringList
 }
@@ -97,16 +98,21 @@ func run(args []string) error {
 	}
 
 	if options.format != "json" {
-		fmt.Fprintf(os.Stderr, "Comparing %s for %s (tie tolerance %s)\n", strings.Join(names, ", "), options.duration, options.tieTolerance)
+		fmt.Fprintf(os.Stderr, "开始对比多个 Feed 服务性能...\n")
+		fmt.Fprintf(os.Stderr, "测试持续时间: %s\n", options.duration)
+		fmt.Fprintf(os.Stderr, "测试端点: %s (tie tolerance %s)\n", strings.Join(names, ", "), options.tieTolerance)
 	}
 	ticker := time.NewTicker(options.statusInterval)
 	defer ticker.Stop()
 	for {
 		select {
 		case update := <-updates:
-			runner.Add(update)
+			match := runner.Add(update)
 			if options.format != "json" {
 				writeStatus(os.Stderr, update)
+				if options.perEvent && match != nil {
+					benchmark.WriteMatchEvent(os.Stdout, match, runner.NameWidth())
+				}
 			}
 		case now := <-ticker.C:
 			if options.format != "json" {
@@ -116,7 +122,10 @@ func run(args []string) error {
 			for {
 				select {
 				case update := <-updates:
-					runner.Add(update)
+					match := runner.Add(update)
+					if options.format != "json" && options.perEvent && match != nil {
+						benchmark.WriteMatchEvent(os.Stdout, match, runner.NameWidth())
+					}
 				default:
 					return benchmark.WriteReport(os.Stdout, runner.Snapshot(time.Now()), options.format)
 				}
@@ -139,6 +148,7 @@ func parseOptions(args []string) (options, error) {
 	flags.DurationVar(&value.maxAge, "max-age", 5*time.Second, "discard startup backlog older than this")
 	flags.IntVar(&value.maxTracked, "max-tracked", 100_000, "maximum event IDs retained for matching and deduplication")
 	flags.StringVar(&value.format, "format", "table", "output format: table or json")
+	flags.BoolVar(&value.perEvent, "per-event", true, "print each matched event in grpc-benchmark style")
 	flags.BoolVar(&value.official, "official", true, "include the official Feed as endpoint 1")
 	flags.StringVar(&value.officialName, "official-name", "Official", "official Feed display name")
 	flags.StringVar(&value.officialURL, "official-url", feed.OfficialMainnetURL, "official Feed WebSocket URL")

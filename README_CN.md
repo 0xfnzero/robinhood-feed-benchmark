@@ -171,15 +171,41 @@ cd release
 
 ## 输出说明
 
+默认输出风格对齐 [grpc-benchmark](https://github.com/0xfnzero/grpc-benchmark)：逐笔首达/延迟 + 结束汇总。
+
+### 逐笔事件（stdout，可用 `--per-event=false` 关闭）
+
 ```text
-RANK  FEED      STATUS  EVENTS  RATE    COVERAGE  MATCHED  WIN RATE  P50 LAG  P95 LAG  P99 LAG  FEED AGE  DISCONNECTS
-1     Official  live    1000    33.3/s  100.00%   980      55.10%    0s       2.1ms    5.4ms    420ms     0
+[11:18:30.706] LocalRBH 接收 seq 65325112: 首次接收
+[11:18:31.169] Official 接收 seq 65325112: 延迟 462.18ms (相对于 LocalRBH)
+[11:18:31.727] LocalRBH 接收 seq 65325122: 首次接收
+[11:18:31.735] Official 接收 seq 65325122: 延迟   8.80ms (相对于 LocalRBH)
+```
+
+### 结束汇总
+
+```text
+📊 LocalRBH 性能分析
+总接收事件数: 447 events
+首先接收事件数: 425 (95.72%) events
+落后接收事件数: 19 (4.28%) events
+ℹ 延迟统计 (相对于最快端点):
+  平均延迟: 12.13 ms
+  P50 延迟: 0.00 ms
+  ...
+
+🏆 端点性能对比
+LocalRBH    : 首先接收  95.72%, 落后时平均延迟  12.13ms, 总体平均延迟   0.52ms
+Official    : 首先接收   5.63%, 落后时平均延迟  30.35ms, 总体平均延迟  28.65ms
+
+RANK  FEED      STATUS  EVENTS  RATE    COVERAGE  MATCHED  WIN RATE  P50 LAG  ...
+1     LocalRBH  live    447     9.9/s   100.00%   444      95.72%    0s
 ```
 
 - `EVENTS`：该端点收到并去重后的实时 sequencer 消息数。
 - `COVERAGE`：该端点相对所有端点事件并集的覆盖率。
 - `MATCHED`：所有端点都收到的公共事件数；延迟只使用这些样本。
-- `WIN RATE`：相对最快端点不超过 `--tie-tolerance` 的样本比例。
+- `WIN RATE` / `首先接收`：相对最快端点不超过 `--tie-tolerance` 的样本比例。
 - `P50/P95/P99 LAG`：相对同一事件最早到达端点的延迟。
 - `FEED AGE`：本机接收时间减去 Feed 内的秒级时间戳，仅适合发现明显积压，不能替代相对延迟。
 
@@ -192,6 +218,7 @@ RANK  FEED      STATUS  EVENTS  RATE    COVERAGE  MATCHED  WIN RATE  P50 LAG  P9
 --duration 30s          测试时长
 --feed NAME=URL         增加自定义 Feed，可重复
 --format table|json     输出格式
+--per-event             逐笔打印首达/延迟（默认开启，grpc-benchmark 风格）
 --tie-tolerance 1ms     计为并列首达的容差
 --max-age 5s            丢弃启动积压和过期消息
 --status-interval 5s    实时进度间隔

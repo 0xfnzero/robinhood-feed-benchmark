@@ -159,15 +159,34 @@ available with `--format`.
 
 ## Result fields
 
+Default output follows the [grpc-benchmark](https://github.com/0xfnzero/grpc-benchmark) style:
+per-event first-arrival / lag lines, then an end-of-run summary.
+
+### Per-event lines (stdout; disable with `--per-event=false`)
+
 ```text
-RANK  FEED      STATUS  EVENTS  RATE    COVERAGE  MATCHED  WIN RATE  P50 LAG  P95 LAG  P99 LAG  FEED AGE  DISCONNECTS
-1     Official  live    1000    33.3/s  100.00%   980      55.10%    0s       2.1ms    5.4ms    420ms     0
+[11:18:30.706] LocalRBH 接收 seq 65325112: 首次接收
+[11:18:31.169] Official 接收 seq 65325112: 延迟 462.18ms (相对于 LocalRBH)
+```
+
+### Summary
+
+```text
+📊 LocalRBH 性能分析
+首先接收事件数: 425 (95.72%) events
+...
+
+🏆 端点性能对比
+LocalRBH    : 首先接收  95.72%, 落后时平均延迟  12.13ms, 总体平均延迟   0.52ms
+
+RANK  FEED      STATUS  EVENTS  RATE    COVERAGE  MATCHED  WIN RATE  P50 LAG  ...
 ```
 
 - `COVERAGE` is the endpoint's share of the union of observed events.
 - `MATCHED` counts events received by every configured endpoint; latency uses
   only these common samples.
-- `WIN RATE` counts arrivals within `--tie-tolerance` of the fastest endpoint.
+- `WIN RATE` / first-arrival rate counts arrivals within `--tie-tolerance` of
+  the fastest endpoint.
 - `P50/P95/P99 LAG` measures relative delay from the first endpoint to receive
   the same event.
 - `FEED AGE` uses the whole-second timestamp carried by the Feed and is only a
@@ -184,6 +203,7 @@ relative lag is always zero.
 --duration 30s          Benchmark duration
 --feed NAME=URL         Add a custom Feed; repeatable
 --format table|json     Output format
+--per-event             Per-event first/lag lines (default true, grpc-benchmark style)
 --tie-tolerance 1ms     First-arrival tie threshold
 --max-age 5s            Discard stale startup messages
 --status-interval 5s    Live progress interval
