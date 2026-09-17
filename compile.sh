@@ -48,6 +48,10 @@ for target in $targets; do
 			-o "$package_dir/feed-benchmark" ./cmd/feed-benchmark
 	)
 	cp "$project_dir/run-feed-comparison.sh" "$package_dir/"
+	if [ -f "$project_dir/run-vs-local-rbh.sh" ]; then
+		cp "$project_dir/run-vs-local-rbh.sh" "$package_dir/"
+		chmod 0755 "$package_dir/run-vs-local-rbh.sh"
+	fi
 	cp "$project_dir/.env.example" "$project_dir/.env.copy" "$package_dir/"
 	cp "$project_dir/README.md" "$project_dir/README_CN.md" "$project_dir/LICENSE" "$package_dir/"
 	printf '%s\n' "$version" > "$package_dir/VERSION"
