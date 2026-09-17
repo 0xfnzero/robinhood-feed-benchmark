@@ -112,30 +112,34 @@ cp .env.copy .env
 Indexed environment variables are supported:
 
 ```text
+# Skip the official Feed when comparing only custom endpoints
+FEED_INCLUDE_OFFICIAL=false
+
 FEED_NAME_1=MyFeed
 FEED_URL_1=wss://your-feed.example.com
 FEED_TOKEN_1=your-token
-```
 
-Keep tokens in the untracked `.env` file or process environment rather than in
-URLs or command-line arguments.
-
-Add more Feeds by incrementing the suffix:
-
-```text
 FEED_NAME_2=AnotherFeed
 FEED_URL_2=wss://another-feed.example.com
 FEED_TOKEN_2=
+
+FEED_COMPARISON_DURATION=45s
 ```
 
-The official Feed remains endpoint 1 unless `--official=false` is supplied.
+Keep real IPs and tokens in the untracked `.env` file (never commit it).
+`.env.copy` / `.env.example` only contain placeholders.
+`./run-feed-comparison.sh` loads `.env` and passes `--official=false` when
+`FEED_INCLUDE_OFFICIAL=false`.
+
+The official Feed remains endpoint 1 unless disabled via that env var or
+`--official=false`.
 
 ## Build release packages
 
 Maintainers can cross-compile all four supported platforms in one command:
 
 ```sh
-VERSION=v0.1.3 ./compile.sh
+VERSION=v0.1.4 ./compile.sh
 ```
 
 `release/` will contain `install.sh`, four platform archives, and

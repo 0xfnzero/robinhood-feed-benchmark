@@ -60,13 +60,12 @@ func ValidateEndpoint(endpoint Endpoint) error {
 	if err != nil || parsed.Host == "" || parsed.User != nil {
 		return fmt.Errorf("feed %q has an invalid URL", endpoint.Name)
 	}
-	if parsed.Scheme == "wss" {
+	switch parsed.Scheme {
+	case "wss", "ws":
 		return nil
+	default:
+		return fmt.Errorf("feed %q must use ws or wss", endpoint.Name)
 	}
-	if parsed.Scheme == "ws" && isLoopback(parsed.Hostname()) {
-		return nil
-	}
-	return fmt.Errorf("feed %q must use wss; ws is allowed only for loopback", endpoint.Name)
 }
 
 func Run(ctx context.Context, endpoint Endpoint, maxAge time.Duration, output chan<- Update) {
@@ -235,10 +234,3 @@ func nextDelay(delay time.Duration) time.Duration {
 	return delay * 2
 }
 
-func isLoopback(host string) bool {
-	if strings.EqualFold(host, "localhost") {
-		return true
-	}
-	address := net.ParseIP(host)
-	return address != nil && address.IsLoopback()
-}

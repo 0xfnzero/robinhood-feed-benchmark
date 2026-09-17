@@ -126,6 +126,9 @@ cp .env.copy .env
 环境变量按数字递增：
 
 ```text
+# 只对比自定义 Feed 时关闭官方端点
+FEED_INCLUDE_OFFICIAL=false
+
 FEED_NAME_1=MyFeed
 FEED_URL_1=wss://your-feed.example.com
 FEED_TOKEN_1=your-token
@@ -133,9 +136,12 @@ FEED_TOKEN_1=your-token
 FEED_NAME_2=AnotherFeed
 FEED_URL_2=wss://another-feed.example.com
 FEED_TOKEN_2=
+
+FEED_COMPARISON_DURATION=45s
 ```
 
-Token 建议只放在未提交的 `.env` 或进程环境中，不要放进 URL 或命令行参数。
+真实 IP、Token 只写在未提交的 `.env` 里；仓库里的 `.env.copy` / `.env.example` 只用占位符。
+`./run-feed-comparison.sh` 会加载 `.env`，并在 `FEED_INCLUDE_OFFICIAL=false` 时自动加上 `--official=false`。
 
 ## 生成发布包
 

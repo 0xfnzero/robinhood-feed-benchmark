@@ -1,6 +1,7 @@
 package benchmark
 
 import (
+	"strings"
 	"testing"
 	"time"
 
@@ -52,6 +53,35 @@ func TestRunnerDeduplicatesAndRequiresCommonEvents(t *testing.T) {
 		if endpoint.Name == "A" && endpoint.Observed != 1 {
 			t.Fatalf("duplicate counted: %+v", endpoint)
 		}
+	}
+}
+
+func TestWriteMatchEventGrpcStyle(t *testing.T) {
+	start := time.Unix(100, 0)
+	match := &MatchEvent{
+		Sequence: 42,
+		Winner:   "Ours",
+		Arrivals: []Arrival{
+			{Name: "Ours", At: start, Lag: 0, First: true, Winner: "Ours"},
+			{Name: "Peer", At: start.Add(12 * time.Millisecond), Lag: 12 * time.Millisecond, First: false, Winner: "Ours"},
+			{Name: "Tiny", At: start.Add(5 * time.Microsecond), Lag: 5 * time.Microsecond, First: false, Winner: "Ours"},
+		},
+	}
+	var buf strings.Builder
+	WriteMatchEvent(&buf, match, 8)
+	out := buf.String()
+	if !strings.Contains(out, "Ours     接收 seq 42: 首次接收") {
+		t.Fatalf("missing first line: %q", out)
+	}
+	if !strings.Contains(out, "Peer     接收 seq 42: 延迟  12.00ms (相对于 Ours)") {
+		t.Fatalf("missing lag line: %q", out)
+	}
+	if strings.Contains(out, "Tiny") {
+		t.Fatalf("sub-0.01ms lag should be omitted: %q", out)
+	}
+	lines := strings.Split(strings.TrimSpace(out), "\n")
+	if len(lines) != 2 {
+		t.Fatalf("want 2 lines, got %d: %q", len(lines), out)
 	}
 }
 

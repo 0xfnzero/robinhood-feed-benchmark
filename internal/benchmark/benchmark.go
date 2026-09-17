@@ -359,6 +359,11 @@ func (r *Runner) Snapshot(now time.Time) Report {
 }
 
 // WriteMatchEvent prints one common seq in grpc-benchmark style.
+// Mirrors grpc_comparison.rs log_info lines:
+//   [HH:MM:SS.mmm] Name 接收 seq N: 首次接收
+//   [HH:MM:SS.mmm] Name 接收 seq N: 延迟   X.XXms (相对于 Winner)
+// Uses one wall-clock timestamp for the whole match group (like grpc-benchmark),
+// prints the exclusive first-arrival first, then lagging endpoints (lag >= 0.01ms).
 func WriteMatchEvent(w io.Writer, match *MatchEvent, nameWidth int) {
 	if match == nil || len(match.Arrivals) == 0 {
 		return
@@ -366,16 +371,22 @@ func WriteMatchEvent(w io.Writer, match *MatchEvent, nameWidth int) {
 	if nameWidth < 8 {
 		nameWidth = 8
 	}
+	ts := time.Now().Format("15:04:05.000")
 	for _, arrival := range match.Arrivals {
-		ts := arrival.At.Format("15:04:05.000")
 		name := fmt.Sprintf("%-*s", nameWidth, arrival.Name)
 		if arrival.First {
 			fmt.Fprintf(w, "[%s] %s 接收 seq %d: 首次接收\n", ts, name, match.Sequence)
 			continue
 		}
 		ms := float64(arrival.Lag) / float64(time.Millisecond)
+		if ms < 0.01 {
+			continue
+		}
 		fmt.Fprintf(w, "[%s] %s 接收 seq %d: 延迟 %6.2fms (相对于 %s)\n",
 			ts, name, match.Sequence, ms, match.Winner)
+	}
+	if flusher, ok := w.(interface{ Flush() error }); ok {
+		_ = flusher.Flush()
 	}
 }
 

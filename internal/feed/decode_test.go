@@ -79,13 +79,19 @@ func TestDecodeObservationsRejectsMalformedFrames(t *testing.T) {
 }
 
 func TestValidateEndpoint(t *testing.T) {
-	valid := []string{"wss://feed.example.com", "ws://localhost:8080", "ws://127.0.0.1:8080", "ws://[::1]:8080"}
+	valid := []string{
+		"wss://feed.example.com",
+		"ws://localhost:8080",
+		"ws://127.0.0.1:8080",
+		"ws://[::1]:8080",
+		"ws://192.0.2.10:9642/feed",
+	}
 	for _, address := range valid {
 		if err := ValidateEndpoint(Endpoint{Name: "test", URL: address}); err != nil {
 			t.Errorf("%s: %v", address, err)
 		}
 	}
-	invalid := []string{"ws://feed.example.com", "http://feed.example.com", "wss://user:pass@feed.example.com", "not-a-url"}
+	invalid := []string{"http://feed.example.com", "wss://user:pass@feed.example.com", "not-a-url"}
 	for _, address := range invalid {
 		if err := ValidateEndpoint(Endpoint{Name: "test", URL: address}); err == nil {
 			t.Errorf("%s unexpectedly accepted", address)

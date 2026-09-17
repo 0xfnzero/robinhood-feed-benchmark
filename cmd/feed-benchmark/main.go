@@ -2,13 +2,11 @@ package main
 
 import (
 	"context"
-	"encoding/json"
 	"errors"
 	"flag"
 	"fmt"
 	"os"
 	"os/signal"
-	"sort"
 	"strconv"
 	"strings"
 	"syscall"
@@ -112,11 +110,12 @@ func run(args []string) error {
 				writeStatus(os.Stderr, update)
 				if options.perEvent && match != nil {
 					benchmark.WriteMatchEvent(os.Stdout, match, runner.NameWidth())
+					_ = os.Stdout.Sync()
 				}
 			}
 		case now := <-ticker.C:
 			if options.format != "json" {
-				writeProgress(os.Stderr, runner.Snapshot(now))
+				writeProgress(os.Stderr, runner.Snapshot(now), options.duration, startedAt)
 			}
 		case <-ctx.Done():
 			for {
@@ -127,6 +126,7 @@ func run(args []string) error {
 						benchmark.WriteMatchEvent(os.Stdout, match, runner.NameWidth())
 					}
 				default:
+					_ = os.Stdout.Sync()
 					return benchmark.WriteReport(os.Stdout, runner.Snapshot(time.Now()), options.format)
 				}
 			}
@@ -256,16 +256,20 @@ func writeStatus(writer *os.File, update feed.Update) {
 	}
 }
 
-func writeProgress(writer *os.File, report benchmark.Report) {
-	type progress struct {
-		Name   string `json:"name"`
-		Events int    `json:"events"`
+func writeProgress(writer *os.File, report benchmark.Report, duration time.Duration, startedAt time.Time) {
+	elapsed := time.Since(startedAt)
+	remaining := duration - elapsed
+	if remaining < 0 {
+		remaining = 0
 	}
-	values := make([]progress, 0, len(report.Endpoints))
-	for _, endpoint := range report.Endpoints {
-		values = append(values, progress{Name: endpoint.Name, Events: endpoint.Observed})
+	pct := 0.0
+	if duration > 0 {
+		pct = elapsed.Seconds() * 100 / duration.Seconds()
+		if pct > 100 {
+			pct = 100
+		}
 	}
-	sort.Slice(values, func(i, j int) bool { return values[i].Name < values[j].Name })
-	encoded, _ := json.Marshal(values)
-	fmt.Fprintf(writer, "[%s] common=%d unique=%d feeds=%s\n", time.Now().Format("15:04:05.000"), report.CommonEvents, report.UniqueEvents, encoded)
+	fmt.Fprintf(writer,
+		"===== 测试进度: %.0f%% [%.0f/%.0f秒] - 剩余时间: %.0f秒 - 已对比 seq: %d =====\n",
+		pct, elapsed.Seconds(), duration.Seconds(), remaining.Seconds(), report.CommonEvents)
 }
