@@ -73,8 +73,9 @@ cp .env.copy .env
 - 第一个测速端点默认是 Robinhood 官方主网 Feed：
   `wss://feed.mainnet.chain.robinhood.com`
 - 支持任意数量的自定义 Feed 和 Bearer Token。
-- 实时显示连接状态、事件数量和公共样本数量。
-- 汇总覆盖率、首达胜率、P50/P95/P99 相对延迟、事件速率和断线次数。
+- 实时显示连接状态、`seq` 数量和公共样本数量。
+- 汇总覆盖率、互斥首达胜率（grpc-benchmark 风格）、完整延迟分位
+  （P1/P5/P10/P25/P50/P75/P90/P95/P99）、最大领先、事件速率和断线次数。
 - 过滤连接启动时的历史积压，断线后自动指数退避重连。
 - 支持表格或 JSON 输出。
 - 公网端点必须使用 `wss://`；`ws://` 只允许本机测试。
@@ -141,7 +142,7 @@ Token 建议只放在未提交的 `.env` 或进程环境中，不要放进 URL �
 维护者可以一次生成四个平台的预编译包：
 
 ```sh
-VERSION=v0.1.1 ./compile.sh
+VERSION=v0.1.3 ./compile.sh
 ```
 
 产物位于 `release/`：
@@ -186,28 +187,35 @@ cd release
 
 ```text
 📊 LocalRBH 性能分析
-总接收事件数: 447 events
-首先接收事件数: 425 (95.72%) events
-落后接收事件数: 19 (4.28%) events
+总接收数: 447 seqs
+首先接收数: 425 (95.08%) seqs
+落后接收数: 22 (4.92%) seqs
 ℹ 延迟统计 (相对于最快端点):
   平均延迟: 12.13 ms
-  P50 延迟: 0.00 ms
-  ...
+  P25 延迟: ...
+  P50 延迟: ...
+  P90 延迟: ...
+  P99 延迟: ...
+  最大延迟: ...
+ℹ 领先幅度 (先到时相对第二名):
+  P50 领先: ...
+  最大领先: ...
 
 🏆 端点性能对比
-LocalRBH    : 首先接收  95.72%, 落后时平均延迟  12.13ms, 总体平均延迟   0.52ms
-Official    : 首先接收   5.63%, 落后时平均延迟  30.35ms, 总体平均延迟  28.65ms
+LocalRBH    : 首先接收  95.08%, 落后时平均延迟  12.13ms, 总体平均延迟   0.52ms, 最大领先  ...
 
-RANK  FEED      STATUS  EVENTS  RATE    COVERAGE  MATCHED  WIN RATE  P50 LAG  ...
-1     LocalRBH  live    447     9.9/s   100.00%   444      95.72%    0s
+RANK  FEED      STATUS  SEQS  RATE    COVERAGE  MATCHED  WIN RATE  P25 LAG  P50 LAG  ...  BEST LEAD
+1     LocalRBH  live    447     9.9/s   100.00%   447      95.08%    ...
 ```
 
-- `EVENTS`：该端点收到并去重后的实时 sequencer 消息数。
-- `COVERAGE`：该端点相对所有端点事件并集的覆盖率。
-- `MATCHED`：所有端点都收到的公共事件数；延迟只使用这些样本。
-- `WIN RATE` / `首先接收`：相对最快端点不超过 `--tie-tolerance` 的样本比例。
-- `P50/P95/P99 LAG`：相对同一事件最早到达端点的延迟。
+- `SEQS` / `MATCHED`：收到并去重后的 / 各端点都收到的 `sequenceNumber` 样本数。
+- `COVERAGE`：该端点相对所有端点 seq 并集的覆盖率。
+- `WIN RATE` / `首先接收`：每个公共 seq 只计一个最快端点（与 grpc-benchmark 一致；默认 `--tie-tolerance 0`）。
+- `P25/P50/P75/P90/P99 LAG`：落后样本相对最快端点的延迟分位。
+- `BEST LEAD`：先到时相对第二名的最大领先幅度。
 - `FEED AGE`：本机接收时间减去 Feed 内的秒级时间戳，仅适合发现明显积压，不能替代相对延迟。
+
+对齐键为 Feed 的 `sequenceNumber`（报告里缩写为 `seq`）。
 
 两路或更多 Feed 必须在同一台机器、同一进程中比较，这样相对延迟使用 Go 的单调时钟，
 不受机器时钟同步误差影响。只运行官方 Feed 时，吞吐和 Feed age 仍有效，但相对延迟恒为零。
@@ -219,7 +227,7 @@ RANK  FEED      STATUS  EVENTS  RATE    COVERAGE  MATCHED  WIN RATE  P50 LAG  ..
 --feed NAME=URL         增加自定义 Feed，可重复
 --format table|json     输出格式
 --per-event             逐笔打印首达/延迟（默认开启，grpc-benchmark 风格）
---tie-tolerance 1ms     计为并列首达的容差
+--tie-tolerance 0       软并列容差；默认 0=互斥首达（grpc-benchmark）
 --max-age 5s            丢弃启动积压和过期消息
 --status-interval 5s    实时进度间隔
 --official=false        不连接官方 Feed

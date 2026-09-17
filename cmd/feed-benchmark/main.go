@@ -144,7 +144,7 @@ func parseOptions(args []string) (options, error) {
 	}
 	flags.DurationVar(&value.duration, "duration", 30*time.Second, "benchmark duration")
 	flags.DurationVar(&value.statusInterval, "status-interval", 5*time.Second, "progress output interval")
-	flags.DurationVar(&value.tieTolerance, "tie-tolerance", time.Millisecond, "arrival difference counted as a tie")
+	flags.DurationVar(&value.tieTolerance, "tie-tolerance", 0, "soft-tie window; 0 = exclusive first (grpc-benchmark style)")
 	flags.DurationVar(&value.maxAge, "max-age", 5*time.Second, "discard startup backlog older than this")
 	flags.IntVar(&value.maxTracked, "max-tracked", 100_000, "maximum event IDs retained for matching and deduplication")
 	flags.StringVar(&value.format, "format", "table", "output format: table or json")

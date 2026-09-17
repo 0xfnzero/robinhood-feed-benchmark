@@ -18,8 +18,9 @@
 
 A focused Go CLI for comparing Robinhood Chain Nitro-compatible WebSocket
 Feeds. The official mainnet Feed is endpoint 1 by default. Add custom Feeds and
-the tool matches identical `sequenceNumber + blockHash` events to report
-first-arrival win rate, coverage, and P50/P95/P99 relative latency.
+the tool matches identical `sequenceNumber + blockHash` events (shown as `seq`)
+to report exclusive first-arrival win rate, coverage, lag percentiles
+(P1–P99), and lead margin vs the next-fastest endpoint.
 
 It only benchmarks Feed delivery. It does not use RPC, wallets, signing, or
 transaction submission.
@@ -33,9 +34,10 @@ Golang benchmark.
 - Uses the official Robinhood mainnet Feed as endpoint 1 by default:
   `wss://feed.mainnet.chain.robinhood.com`.
 - Compares any number of custom Nitro-compatible Feeds concurrently.
-- Matches identical events by `sequenceNumber + blockHash`.
-- Reports coverage, first-arrival win rate, P50/P95/P99 lag, event rate, coarse
-  Feed age, connection time, and disconnects.
+- Matches identical events by `sequenceNumber + blockHash` (printed as `seq`).
+- Reports coverage, exclusive first-arrival win rate (grpc-benchmark style),
+  lag percentiles (P1/P5/P10/P25/P50/P75/P90/P95/P99), best lead, event rate,
+  coarse Feed age, connection time, and disconnects.
 - Filters startup backlog and reconnects with bounded exponential backoff.
 - Supports optional Bearer tokens, table output, and machine-readable JSON.
 - Requires `wss://` for public endpoints; plain `ws://` is limited to loopback.
@@ -133,7 +135,7 @@ The official Feed remains endpoint 1 unless `--official=false` is supplied.
 Maintainers can cross-compile all four supported platforms in one command:
 
 ```sh
-VERSION=v0.1.1 ./compile.sh
+VERSION=v0.1.3 ./compile.sh
 ```
 
 `release/` will contain `install.sh`, four platform archives, and
@@ -173,24 +175,36 @@ per-event first-arrival / lag lines, then an end-of-run summary.
 
 ```text
 📊 LocalRBH 性能分析
-首先接收事件数: 425 (95.72%) events
-...
+总接收数: 447 seqs
+首先接收数: 425 (95.08%) seqs
+落后接收数: 22 (4.92%) seqs
+ℹ 延迟统计 (相对于最快端点):
+  平均延迟: 12.13 ms
+  P25 延迟: ...
+  P50 延迟: ...
+  P90 延迟: ...
+  P99 延迟: ...
+  最大延迟: ...
+ℹ 领先幅度 (先到时相对第二名):
+  P50 领先: ...
+  最大领先: ...
 
 🏆 端点性能对比
-LocalRBH    : 首先接收  95.72%, 落后时平均延迟  12.13ms, 总体平均延迟   0.52ms
+LocalRBH    : 首先接收  95.08%, 落后时平均延迟  12.13ms, 总体平均延迟   0.52ms, 最大领先  ...
 
-RANK  FEED      STATUS  EVENTS  RATE    COVERAGE  MATCHED  WIN RATE  P50 LAG  ...
+RANK  FEED      STATUS  SEQS  RATE    COVERAGE  MATCHED  WIN RATE  P25 LAG  P50 LAG  ...  BEST LEAD
 ```
 
-- `COVERAGE` is the endpoint's share of the union of observed events.
-- `MATCHED` counts events received by every configured endpoint; latency uses
-  only these common samples.
-- `WIN RATE` / first-arrival rate counts arrivals within `--tie-tolerance` of
-  the fastest endpoint.
-- `P50/P95/P99 LAG` measures relative delay from the first endpoint to receive
-  the same event.
+- `SEQS` / `MATCHED`: observed and common `sequenceNumber` samples.
+- `COVERAGE` is the endpoint's share of the union of observed seqs.
+- `WIN RATE` / first-arrival: exactly one winner per common seq (default
+  `--tie-tolerance 0`, matching grpc-benchmark).
+- `P25/P50/P75/P90/P99 LAG` are percentiles over behind-only samples.
+- `BEST LEAD` is the max lead vs the second-fastest endpoint when winning.
 - `FEED AGE` uses the whole-second timestamp carried by the Feed and is only a
   coarse backlog indicator.
+
+Matching key is Feed `sequenceNumber` (abbreviated `seq` in output).
 
 For valid relative results, connect every Feed from the same Linux server and
 process. Go's monotonic clock then avoids cross-machine clock synchronization
@@ -204,7 +218,7 @@ relative lag is always zero.
 --feed NAME=URL         Add a custom Feed; repeatable
 --format table|json     Output format
 --per-event             Per-event first/lag lines (default true, grpc-benchmark style)
---tie-tolerance 1ms     First-arrival tie threshold
+--tie-tolerance 0       Soft-tie window; 0 = exclusive first (grpc-benchmark)
 --max-age 5s            Discard stale startup messages
 --status-interval 5s    Live progress interval
 --official=false        Exclude the official Feed

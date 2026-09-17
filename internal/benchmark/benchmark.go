@@ -38,8 +38,10 @@ type endpointState struct {
 	wins            int
 	lags            []time.Duration // lag vs earliest (includes 0 for winners)
 	behindLags      []time.Duration // lag only when strictly behind
+	winLeads        []time.Duration // lead margin when this endpoint is sole earliest
 	totalLag        time.Duration
 	behindLagTotal  time.Duration
+	winLeadTotal    time.Duration
 	feedAges        []time.Duration
 	seen            *deduper
 	lastError       string
@@ -91,10 +93,30 @@ type EndpointReport struct {
 	WinRatePct      float64 `json:"win_rate_pct"`
 	MeanLagMS       float64 `json:"mean_lag_ms"`
 	BehindMeanLagMS float64 `json:"behind_mean_lag_ms"`
+	P1LagMS         float64 `json:"p1_lag_ms"`
+	P5LagMS         float64 `json:"p5_lag_ms"`
+	P10LagMS        float64 `json:"p10_lag_ms"`
+	P25LagMS        float64 `json:"p25_lag_ms"`
 	P50LagMS        float64 `json:"p50_lag_ms"`
+	P75LagMS        float64 `json:"p75_lag_ms"`
+	P90LagMS        float64 `json:"p90_lag_ms"`
 	P95LagMS        float64 `json:"p95_lag_ms"`
 	P99LagMS        float64 `json:"p99_lag_ms"`
+	MinLagMS        float64 `json:"min_lag_ms"`
 	MaxLagMS        float64 `json:"max_lag_ms"`
+	// Lead margins when this endpoint is the exclusive earliest vs #2.
+	MeanLeadMS float64 `json:"mean_lead_ms"`
+	P1LeadMS   float64 `json:"p1_lead_ms"`
+	P5LeadMS   float64 `json:"p5_lead_ms"`
+	P10LeadMS  float64 `json:"p10_lead_ms"`
+	P25LeadMS  float64 `json:"p25_lead_ms"`
+	P50LeadMS  float64 `json:"p50_lead_ms"`
+	P75LeadMS  float64 `json:"p75_lead_ms"`
+	P90LeadMS  float64 `json:"p90_lead_ms"`
+	P95LeadMS  float64 `json:"p95_lead_ms"`
+	P99LeadMS  float64 `json:"p99_lead_ms"`
+	BestLeadMS float64 `json:"best_lead_ms"`
+	MinLeadMS  float64 `json:"min_lead_ms"`
 	MedianFeedAgeMS float64 `json:"median_feed_age_ms"`
 	MedianConnectMS float64 `json:"median_connect_ms"`
 	LastError       string  `json:"last_error,omitempty"`
@@ -187,38 +209,56 @@ func (r *Runner) addObservation(state *endpointState, update feed.Update) *Match
 }
 
 func (r *Runner) finalize(event *pendingEvent) *MatchEvent {
-	earliest := time.Time{}
-	winner := ""
-	for name, arrival := range event.arrivals {
-		if earliest.IsZero() || arrival.Before(earliest) {
-			earliest = arrival
-			winner = name
-		}
+	// grpc-benchmark style: sort by arrival time, then name; exactly one first-receiver.
+	type namedArrival struct {
+		name string
+		at   time.Time
 	}
-	arrivals := make([]Arrival, 0, len(event.arrivals))
-	for name, arrival := range event.arrivals {
-		state := r.states[name]
-		lag := arrival.Sub(earliest)
+	ordered := make([]namedArrival, 0, len(event.arrivals))
+	for name, at := range event.arrivals {
+		ordered = append(ordered, namedArrival{name: name, at: at})
+	}
+	sort.Slice(ordered, func(i, j int) bool {
+		if !ordered[i].at.Equal(ordered[j].at) {
+			return ordered[i].at.Before(ordered[j].at)
+		}
+		return ordered[i].name < ordered[j].name
+	})
+	earliest := ordered[0].at
+	winner := ordered[0].name
+	var second time.Time
+	if len(ordered) > 1 {
+		second = ordered[1].at
+	}
+
+	arrivals := make([]Arrival, 0, len(ordered))
+	for _, item := range ordered {
+		state := r.states[item.name]
+		lag := item.at.Sub(earliest)
 		state.matched++
 		state.lags = append(state.lags, lag)
 		state.totalLag += lag
-		first := lag <= r.config.TieTolerance
+
+		// Default (tie-tolerance=0): exclusive first, matching grpc-benchmark.
+		// Optional soft ties only when caller sets a positive tolerance.
+		first := item.name == winner || (r.config.TieTolerance > 0 && lag <= r.config.TieTolerance)
 		if first {
 			state.wins++
+			if item.name == winner && !second.IsZero() && second.After(earliest) {
+				lead := second.Sub(earliest)
+				if lead > 0 {
+					state.winLeads = append(state.winLeads, lead)
+					state.winLeadTotal += lead
+				}
+			}
 		} else {
 			state.behindLags = append(state.behindLags, lag)
 			state.behindLagTotal += lag
 		}
 		arrivals = append(arrivals, Arrival{
-			Name: name, At: arrival, Lag: lag, First: first, Winner: winner,
+			Name: item.name, At: item.at, Lag: lag, First: first, Winner: winner,
 		})
 	}
-	sort.Slice(arrivals, func(i, j int) bool {
-		if arrivals[i].Lag != arrivals[j].Lag {
-			return arrivals[i].Lag < arrivals[j].Lag
-		}
-		return arrivals[i].Name < arrivals[j].Name
-	})
 	r.common++
 	return &MatchEvent{
 		Sequence: event.key.sequence, BlockHash: event.key.blockHash,
@@ -265,13 +305,35 @@ func (r *Runner) Snapshot(now time.Time) Report {
 		if state.matched > 0 {
 			item.WinRatePct = float64(state.wins) * 100 / float64(state.matched)
 			item.MeanLagMS = float64(state.totalLag) / float64(state.matched) / float64(time.Millisecond)
-			item.P50LagMS = percentile(state.lags, 0.50) / float64(time.Millisecond)
-			item.P95LagMS = percentile(state.lags, 0.95) / float64(time.Millisecond)
-			item.P99LagMS = percentile(state.lags, 0.99) / float64(time.Millisecond)
-			item.MaxLagMS = percentile(state.lags, 1) / float64(time.Millisecond)
 		}
+		// Lag percentiles mirror grpc-benchmark: only samples where this endpoint was behind.
 		if len(state.behindLags) > 0 {
 			item.BehindMeanLagMS = float64(state.behindLagTotal) / float64(len(state.behindLags)) / float64(time.Millisecond)
+			item.MinLagMS = percentile(state.behindLags, 0) / float64(time.Millisecond)
+			item.P1LagMS = percentile(state.behindLags, 0.01) / float64(time.Millisecond)
+			item.P5LagMS = percentile(state.behindLags, 0.05) / float64(time.Millisecond)
+			item.P10LagMS = percentile(state.behindLags, 0.10) / float64(time.Millisecond)
+			item.P25LagMS = percentile(state.behindLags, 0.25) / float64(time.Millisecond)
+			item.P50LagMS = percentile(state.behindLags, 0.50) / float64(time.Millisecond)
+			item.P75LagMS = percentile(state.behindLags, 0.75) / float64(time.Millisecond)
+			item.P90LagMS = percentile(state.behindLags, 0.90) / float64(time.Millisecond)
+			item.P95LagMS = percentile(state.behindLags, 0.95) / float64(time.Millisecond)
+			item.P99LagMS = percentile(state.behindLags, 0.99) / float64(time.Millisecond)
+			item.MaxLagMS = percentile(state.behindLags, 1) / float64(time.Millisecond)
+		}
+		if len(state.winLeads) > 0 {
+			item.MeanLeadMS = float64(state.winLeadTotal) / float64(len(state.winLeads)) / float64(time.Millisecond)
+			item.MinLeadMS = percentile(state.winLeads, 0) / float64(time.Millisecond)
+			item.P1LeadMS = percentile(state.winLeads, 0.01) / float64(time.Millisecond)
+			item.P5LeadMS = percentile(state.winLeads, 0.05) / float64(time.Millisecond)
+			item.P10LeadMS = percentile(state.winLeads, 0.10) / float64(time.Millisecond)
+			item.P25LeadMS = percentile(state.winLeads, 0.25) / float64(time.Millisecond)
+			item.P50LeadMS = percentile(state.winLeads, 0.50) / float64(time.Millisecond)
+			item.P75LeadMS = percentile(state.winLeads, 0.75) / float64(time.Millisecond)
+			item.P90LeadMS = percentile(state.winLeads, 0.90) / float64(time.Millisecond)
+			item.P95LeadMS = percentile(state.winLeads, 0.95) / float64(time.Millisecond)
+			item.P99LeadMS = percentile(state.winLeads, 0.99) / float64(time.Millisecond)
+			item.BestLeadMS = percentile(state.winLeads, 1) / float64(time.Millisecond)
 		}
 		item.MedianFeedAgeMS = percentile(state.feedAges, 0.50) / float64(time.Millisecond)
 		item.MedianConnectMS = percentile(state.connectTimes, 0.50) / float64(time.Millisecond)
@@ -296,7 +358,7 @@ func (r *Runner) Snapshot(now time.Time) Report {
 	return report
 }
 
-// WriteMatchEvent prints one common event in grpc-benchmark style.
+// WriteMatchEvent prints one common seq in grpc-benchmark style.
 func WriteMatchEvent(w io.Writer, match *MatchEvent, nameWidth int) {
 	if match == nil || len(match.Arrivals) == 0 {
 		return

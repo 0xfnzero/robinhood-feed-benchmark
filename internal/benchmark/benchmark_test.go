@@ -9,7 +9,7 @@ import (
 
 func TestRunnerMatchesAndRanksFeeds(t *testing.T) {
 	start := time.Unix(100, 0)
-	runner := New(Config{EndpointNames: []string{"Official", "Custom"}, TieTolerance: time.Millisecond, MaxTracked: 100}, start)
+	runner := New(Config{EndpointNames: []string{"Official", "Custom"}, TieTolerance: 0, MaxTracked: 100}, start)
 	for sequence := uint64(1); sequence <= 3; sequence++ {
 		base := start.Add(time.Duration(sequence) * time.Second)
 		runner.Add(observation("Official", sequence, base, base))
@@ -19,11 +19,22 @@ func TestRunnerMatchesAndRanksFeeds(t *testing.T) {
 	if report.UniqueEvents != 3 || report.CommonEvents != 3 {
 		t.Fatalf("unexpected totals: %+v", report)
 	}
-	if report.Endpoints[0].Name != "Official" || report.Endpoints[0].Wins != 3 || report.Endpoints[0].P50LagMS != 0 {
+	if report.Endpoints[0].Name != "Official" || report.Endpoints[0].Wins != 3 || report.Endpoints[0].WinRatePct != 100 {
 		t.Fatalf("unexpected first endpoint: %+v", report.Endpoints[0])
+	}
+	if report.Endpoints[0].BestLeadMS != 2 || report.Endpoints[0].P50LeadMS != 2 {
+		t.Fatalf("unexpected lead stats: %+v", report.Endpoints[0])
 	}
 	if report.Endpoints[1].Name != "Custom" || report.Endpoints[1].Wins != 0 || report.Endpoints[1].P50LagMS != 2 {
 		t.Fatalf("unexpected second endpoint: %+v", report.Endpoints[1])
+	}
+	if report.Endpoints[1].P90LagMS != 2 || report.Endpoints[1].MinLagMS != 2 {
+		t.Fatalf("unexpected lag percentiles: %+v", report.Endpoints[1])
+	}
+	// Exclusive wins must sum to 100%.
+	sumWins := report.Endpoints[0].Wins + report.Endpoints[1].Wins
+	if sumWins != report.CommonEvents {
+		t.Fatalf("wins should be exclusive: %d+%d != %d", report.Endpoints[0].Wins, report.Endpoints[1].Wins, report.CommonEvents)
 	}
 }
 
