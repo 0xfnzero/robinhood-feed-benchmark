@@ -27,9 +27,11 @@ const (
 )
 
 type Endpoint struct {
-	Name  string
-	URL   string
-	Token string
+	Name       string
+	URL        string
+	Token      string            // credential value
+	AuthHeader string            // if empty, Token is sent as Authorization: Bearer <Token>
+	Headers    map[string]string // optional extra headers
 }
 
 type UpdateKind uint8
@@ -64,12 +66,21 @@ func ValidateEndpoint(endpoint Endpoint) error {
 	switch parsed.Scheme {
 	case "wss", "ws":
 		return nil
+	case "tcp", "rhf2", "tcp-listen", "rhf2-listen":
+		if parsed.Port() == "" {
+			return fmt.Errorf("feed %q RHF2 URL must include a port", endpoint.Name)
+		}
+		return nil
 	default:
-		return fmt.Errorf("feed %q must use ws or wss", endpoint.Name)
+		return fmt.Errorf("feed %q must use ws, wss, or tcp/rhf2", endpoint.Name)
 	}
 }
 
 func Run(ctx context.Context, endpoint Endpoint, maxAge time.Duration, output chan<- Update) {
+	if IsRHF2Endpoint(endpoint) {
+		runRHF2(ctx, endpoint, maxAge, output)
+		return
+	}
 	delay := reconnectMinimum
 	for {
 		if !send(ctx, output, Update{Kind: UpdateConnecting, Endpoint: endpoint.Name, At: time.Now()}) {
@@ -135,8 +146,20 @@ func dial(ctx context.Context, endpoint Endpoint) (*websocket.Conn, *http.Respon
 		},
 	}
 	headers := http.Header{clientVersionHeader: []string{"2"}}
-	if endpoint.Token != "" {
-		headers.Set("Authorization", "Bearer "+endpoint.Token)
+	for key, value := range endpoint.Headers {
+		key, value = strings.TrimSpace(key), strings.TrimSpace(value)
+		if key == "" || value == "" {
+			continue
+		}
+		headers.Set(key, value)
+	}
+	if token := strings.TrimSpace(endpoint.Token); token != "" {
+		authHeader := strings.TrimSpace(endpoint.AuthHeader)
+		if authHeader == "" {
+			headers.Set("Authorization", "Bearer "+token)
+		} else {
+			headers.Set(authHeader, token)
+		}
 	}
 	conn, resp, err := dialer.DialContext(ctx, endpoint.URL, headers)
 	if err != nil {

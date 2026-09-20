@@ -16,13 +16,13 @@ type Config struct {
 }
 
 type eventKey struct {
-	sequence  uint64
-	blockHash string
+	sequence uint64
 }
 
 type pendingEvent struct {
-	key      eventKey
-	arrivals map[string]time.Time
+	key       eventKey
+	blockHash string
+	arrivals  map[string]time.Time
 }
 
 type endpointState struct {
@@ -177,7 +177,7 @@ func (r *Runner) Add(update feed.Update) *MatchEvent {
 }
 
 func (r *Runner) addObservation(state *endpointState, update feed.Update) *MatchEvent {
-	key := eventKey{sequence: update.Sequence, blockHash: update.BlockHash}
+	key := eventKey{sequence: update.Sequence}
 	if !state.seen.Add(key) {
 		return nil
 	}
@@ -194,9 +194,11 @@ func (r *Runner) addObservation(state *endpointState, update feed.Update) *Match
 
 	event := r.pending[key]
 	if event == nil {
-		event = &pendingEvent{key: key, arrivals: make(map[string]time.Time, len(r.states))}
+		event = &pendingEvent{key: key, blockHash: update.BlockHash, arrivals: make(map[string]time.Time, len(r.states))}
 		r.pending[key] = event
 		r.pendingKeys = append(r.pendingKeys, key)
+	} else if event.blockHash == "" && update.BlockHash != "" {
+		event.blockHash = update.BlockHash
 	}
 	event.arrivals[state.name] = update.At
 	var match *MatchEvent
@@ -261,7 +263,7 @@ func (r *Runner) finalize(event *pendingEvent) *MatchEvent {
 	}
 	r.common++
 	return &MatchEvent{
-		Sequence: event.key.sequence, BlockHash: event.key.blockHash,
+		Sequence: event.key.sequence, BlockHash: event.blockHash,
 		Winner: winner, Arrivals: arrivals,
 	}
 }

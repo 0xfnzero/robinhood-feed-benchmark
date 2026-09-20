@@ -40,7 +40,7 @@ Linux 服务器推荐直接克隆仓库：
 git clone https://github.com/0xfnzero/robinhood-feed-benchmark.git
 cd robinhood-feed-benchmark
 cp .env.copy .env
-# 可选：在 .env 中填写自己的 Feed；留空则只测试官方 Feed
+# 在 .env 中配置要测的 Feed（厂商 / 自建 / 可选官方）
 ./run-feed-comparison.sh
 ```
 
@@ -58,27 +58,27 @@ cd "$HOME/robinhood-feed-benchmark"
 ```
 
 独立安装方式适合不希望保留源码仓库的用户。安装脚本会自动识别操作系统和 CPU、
-下载对应二进制并验证 SHA-256。最后一条命令直接连接官方 Feed 测速。
-
-对比自己的 Feed 时只需：
+下载对应二进制并验证 SHA-256。请先在 `.env` 中配置要测的 Feed，再运行
+`./run-feed-comparison.sh`。
 
 ```sh
 cp .env.copy .env
-# 在 .env 中填写 FEED_NAME_1、FEED_URL_1 和可选的 FEED_TOKEN_1
+# 填写 FEED_VENDOR_N（RHF2 / NitroFeed）+ FEED_URL_N
+# 需要官方 Feed 时再设 FEED_INCLUDE_OFFICIAL=true
 ./run-feed-comparison.sh
 ```
 
 ## 功能
 
-- 第一个测速端点默认是 Robinhood 官方主网 Feed：
-  `wss://feed.mainnet.chain.robinhood.com`
-- 支持任意数量的自定义 Feed 和 Bearer Token。
+- 支持 Nitro JSON WebSocket 与 RHF2 二进制 TCP 流并发对比（自建 / 第三方 / 官方）。
+- 官方主网 Feed 为可选：`wss://feed.mainnet.chain.robinhood.com`，通过
+  `--official` 或 `FEED_INCLUDE_OFFICIAL=true` 开启。
 - 实时显示连接状态、`seq` 数量和公共样本数量。
 - 汇总覆盖率、互斥首达胜率（grpc-benchmark 风格）、完整延迟分位
   （P1/P5/P10/P25/P50/P75/P90/P95/P99）、最大领先、事件速率和断线次数。
 - 过滤连接启动时的历史积压，断线后自动指数退避重连。
-- 支持表格或 JSON 输出。
-- 公网端点必须使用 `wss://`；`ws://` 只允许本机测试。
+- 支持 Bearer / 自定义鉴权头，以及表格或 JSON 输出。
+- 支持 `wss://` / `ws://`（NitroFeed）与 `tcp://`（RHF2）。
 
 ## 源码构建
 
@@ -92,22 +92,23 @@ make build
 
 ## 快速开始
 
-只测试官方 Feed：
-
-```sh
-./bin/feed-benchmark --duration 30s
-```
-
-官方 Feed 与一个自定义 Feed 对比：
+对比两个自定义 Feed：
 
 ```sh
 ./bin/feed-benchmark \
+  --feed A=wss://a.example.com \
+  --feed B=wss://b.example.com \
+  --duration 30s
+```
+
+需要官方 Feed 时显式加上 `--official`：
+
+```sh
+./bin/feed-benchmark \
+  --official \
   --feed MyFeed=wss://your-feed.example.com \
   --duration 1m
 ```
-
-重复 `--feed` 即可增加端点。官方 Feed 始终排在第一个，除非显式传入
-`--official=false`。
 
 ## 使用 `.env`
 
@@ -123,25 +124,28 @@ cp .env.copy .env
 ./run-feed-comparison.sh
 ```
 
-环境变量按数字递增：
+环境变量按数字递增。`FEED_VENDOR_N` 填线格式（不是品牌名）：
 
 ```text
-# 只对比自定义 Feed 时关闭官方端点
-FEED_INCLUDE_OFFICIAL=false
+FEED_VENDOR_1=RHF2
+FEED_URL_1=tcp://0.0.0.0:19770
 
-FEED_NAME_1=MyFeed
-FEED_URL_1=wss://your-feed.example.com
-FEED_TOKEN_1=your-token
+FEED_VENDOR_2=NitroFeed
+FEED_NAME_2=Ours
+FEED_URL_2=ws://127.0.0.1:9642/feed
 
-FEED_NAME_2=AnotherFeed
-FEED_URL_2=wss://another-feed.example.com
-FEED_TOKEN_2=
+# 需要官方 Feed 时再开启
+# FEED_INCLUDE_OFFICIAL=true
 
 FEED_COMPARISON_DURATION=45s
 ```
 
-真实 IP、Token 只写在未提交的 `.env` 里；仓库里的 `.env.copy` / `.env.example` 只用占位符。
-`./run-feed-comparison.sh` 会加载 `.env`，并在 `FEED_INCLUDE_OFFICIAL=false` 时自动加上 `--official=false`。
+`RHF2` 监听二进制 TCP 推送（`tcp://host:port`）。
+`NitroFeed` 连接 Nitro JSON WebSocket（`ws://` / `wss://`），可选
+`FEED_TOKEN_N` / `FEED_AUTH_HEADER_N`。同一格式多路对比时用 `FEED_NAME_N` 区分。
+
+真实 Token 只写在未提交的 `.env` 里；仓库里的 `.env.copy` / `.env.example` 只用占位符。
+`./run-feed-comparison.sh` 会加载 `.env`，并在 `FEED_INCLUDE_OFFICIAL=true` 时自动加上 `--official`。
 
 ## 生成发布包
 
@@ -231,13 +235,17 @@ RANK  FEED      STATUS  SEQS  RATE    COVERAGE  MATCHED  WIN RATE  P25 LAG  P50 
 ```text
 --duration 30s          测试时长
 --feed NAME=URL         增加自定义 Feed，可重复
+--feed-token NAME=TOKEN 可选 Token
+--feed-auth-header NAME=Header  自定义鉴权头（默认 Bearer）
 --format table|json     输出格式
 --per-event             逐笔打印首达/延迟（默认开启，grpc-benchmark 风格）
 --tie-tolerance 0       软并列容差；默认 0=互斥首达（grpc-benchmark）
 --max-age 5s            丢弃启动积压和过期消息
 --status-interval 5s    实时进度间隔
---official=false        不连接官方 Feed
+--official              加入官方 Robinhood 主网 Feed（默认关闭）
 ```
+
+优先用 `.env` 的线格式配置（`FEED_VENDOR_N=RHF2|NitroFeed` + `FEED_URL_N`）。
 
 运行 `./bin/feed-benchmark --help` 查看全部参数。
 

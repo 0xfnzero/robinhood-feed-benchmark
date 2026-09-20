@@ -17,9 +17,9 @@
 </div>
 
 A focused Go CLI for comparing Robinhood Chain Nitro-compatible WebSocket
-Feeds. The official mainnet Feed is endpoint 1 by default. Add custom Feeds and
-the tool matches identical `sequenceNumber + blockHash` events (shown as `seq`)
-to report exclusive first-arrival win rate, coverage, lag percentiles
+Feeds. Configure any mix of self-hosted, vendor, or official Feeds; the tool
+matches identical `sequenceNumber + blockHash` events (shown as `seq`) to
+report exclusive first-arrival win rate, coverage, lag percentiles
 (P1–P99), and lead margin vs the next-fastest endpoint.
 
 It only benchmarks Feed delivery. It does not use RPC, wallets, signing, or
@@ -31,16 +31,18 @@ Golang benchmark.
 
 ## Features
 
-- Uses the official Robinhood mainnet Feed as endpoint 1 by default:
-  `wss://feed.mainnet.chain.robinhood.com`.
-- Compares any number of custom Nitro-compatible Feeds concurrently.
-- Matches identical events by `sequenceNumber + blockHash` (printed as `seq`).
+- Compares Nitro JSON WebSocket Feeds and RHF2 binary TCP streams concurrently
+  (self-hosted, third-party, or official).
+- Official Robinhood mainnet Feed is opt-in:
+  `wss://feed.mainnet.chain.robinhood.com` via `--official` or
+  `FEED_INCLUDE_OFFICIAL=true`.
+- Matches identical events by `sequenceNumber` (printed as `seq`).
 - Reports coverage, exclusive first-arrival win rate (grpc-benchmark style),
   lag percentiles (P1/P5/P10/P25/P50/P75/P90/P95/P99), best lead, event rate,
   coarse Feed age, connection time, and disconnects.
 - Filters startup backlog and reconnects with bounded exponential backoff.
-- Supports optional Bearer tokens, table output, and machine-readable JSON.
-- Requires `wss://` for public endpoints; plain `ws://` is limited to loopback.
+- Supports optional Bearer tokens / custom auth headers, table output, and JSON.
+- Accepts `wss://` / `ws://` (NitroFeed) and `tcp://` (RHF2) URLs.
 
 ## Install a prebuilt release
 
@@ -53,7 +55,7 @@ The recommended Linux server workflow is:
 git clone https://github.com/0xfnzero/robinhood-feed-benchmark.git
 cd robinhood-feed-benchmark
 cp .env.copy .env
-# Optionally configure a custom Feed; leave it empty for the official Feed only.
+# Configure Feeds in .env (vendors, self-hosted, and/or official)
 ./run-feed-comparison.sh
 ```
 
@@ -70,14 +72,13 @@ cd "$HOME/robinhood-feed-benchmark"
 ```
 
 The installer detects the platform, downloads the matching binary, and verifies
-its SHA-256 checksum. The final command immediately benchmarks the official
-Feed with no configuration.
-
-To compare a custom Feed:
+its SHA-256 checksum. Configure Feeds in `.env` before running
+`./run-feed-comparison.sh`.
 
 ```sh
 cp .env.copy .env
-# Set FEED_NAME_1, FEED_URL_1, and optionally FEED_TOKEN_1.
+# Set FEED_VENDOR_N (RHF2 / NitroFeed) + FEED_URL_N.
+# Optionally set FEED_INCLUDE_OFFICIAL=true.
 ./run-feed-comparison.sh
 ```
 
@@ -87,19 +88,19 @@ This section is for developers. Go 1.22 or newer is required.
 
 ```sh
 make build
-./bin/feed-benchmark --duration 30s
+./bin/feed-benchmark --feed A=wss://a.example.com --feed B=wss://b.example.com --duration 30s
 ```
 
-Compare the official Feed with a custom Feed:
+Include the official Feed when you want it:
 
 ```sh
 ./bin/feed-benchmark \
+  --official \
   --feed MyFeed=wss://your-feed.example.com \
   --duration 1m
 ```
 
-Repeat `--feed NAME=URL` to add more endpoints. Use `--official=false` to run
-only custom endpoints.
+Repeat `--feed NAME=URL` to add more endpoints.
 
 ## Environment configuration
 
@@ -109,30 +110,31 @@ cp .env.copy .env
 ./run-feed-comparison.sh
 ```
 
-Indexed environment variables are supported:
+Indexed environment variables select a wire format via `FEED_VENDOR_N`:
 
 ```text
-# Skip the official Feed when comparing only custom endpoints
-FEED_INCLUDE_OFFICIAL=false
+FEED_VENDOR_1=RHF2
+FEED_URL_1=tcp://0.0.0.0:19770
 
-FEED_NAME_1=MyFeed
-FEED_URL_1=wss://your-feed.example.com
-FEED_TOKEN_1=your-token
+FEED_VENDOR_2=NitroFeed
+FEED_NAME_2=Ours
+FEED_URL_2=ws://127.0.0.1:9642/feed
 
-FEED_NAME_2=AnotherFeed
-FEED_URL_2=wss://another-feed.example.com
-FEED_TOKEN_2=
+# Opt in to the official Feed when needed
+# FEED_INCLUDE_OFFICIAL=true
 
 FEED_COMPARISON_DURATION=45s
 ```
 
-Keep real IPs and tokens in the untracked `.env` file (never commit it).
-`.env.copy` / `.env.example` only contain placeholders.
-`./run-feed-comparison.sh` loads `.env` and passes `--official=false` when
-`FEED_INCLUDE_OFFICIAL=false`.
+`RHF2` listens for a binary TCP push (`tcp://host:port`).
+`NitroFeed` connects to a Nitro JSON WebSocket (`ws://` / `wss://`), with optional
+`FEED_TOKEN_N` / `FEED_AUTH_HEADER_N`. Use `FEED_NAME_N` when comparing multiple
+endpoints of the same format.
 
-The official Feed remains endpoint 1 unless disabled via that env var or
-`--official=false`.
+Keep real tokens in the untracked `.env` file (never commit it).
+`.env.copy` / `.env.example` only contain placeholders.
+`./run-feed-comparison.sh` loads `.env` and passes `--official` when
+`FEED_INCLUDE_OFFICIAL=true`.
 
 ## Build release packages
 
@@ -220,13 +222,17 @@ relative lag is always zero.
 ```text
 --duration 30s          Benchmark duration
 --feed NAME=URL         Add a custom Feed; repeatable
+--feed-token NAME=TOKEN Optional token for a named Feed
+--feed-auth-header NAME=Header  Custom auth header (default Bearer)
 --format table|json     Output format
 --per-event             Per-event first/lag lines (default true, grpc-benchmark style)
 --tie-tolerance 0       Soft-tie window; 0 = exclusive first (grpc-benchmark)
 --max-age 5s            Discard stale startup messages
 --status-interval 5s    Live progress interval
---official=false        Exclude the official Feed
+--official              Include the official Robinhood mainnet Feed (opt-in)
 ```
+
+Prefer `.env` format presets (`FEED_VENDOR_N=RHF2|NitroFeed` + `FEED_URL_N`).
 
 ## Verify
 

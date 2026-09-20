@@ -21,13 +21,23 @@ const usageText = `Robinhood Feed benchmark
 Usage:
   feed-benchmark [options]
 
-The official Robinhood mainnet Feed is endpoint 1 by default. Add custom feeds
-with repeated --feed NAME=URL flags or FEED_URL_N environment variables.
+The official Robinhood mainnet Feed is opt-in (--official or FEED_INCLUDE_OFFICIAL=true).
+Prefer wire-format presets via .env (FEED_VENDOR_N + FEED_URL_N). Custom feeds
+also work with --feed NAME=URL.
+
+Built-in formats:
+  RHF2      binary TCP push  (FEED_URL=tcp://0.0.0.0:19770)
+  NitroFeed Nitro JSON WS    (FEED_URL=ws://... or wss://...)
 
 Examples:
-  feed-benchmark --duration 30s
-  feed-benchmark --feed MyFeed=wss://feed.example.com --duration 1m
   feed-benchmark --feed A=wss://a.example.com --feed B=wss://b.example.com
+  feed-benchmark --official --feed Ours=ws://127.0.0.1:9642/feed
+  # .env:
+  #   FEED_VENDOR_1=RHF2
+  #   FEED_URL_1=tcp://0.0.0.0:19770
+  #   FEED_VENDOR_2=NitroFeed
+  #   FEED_NAME_2=Ours
+  #   FEED_URL_2=ws://127.0.0.1:9642/feed
 `
 
 var version = "dev"
@@ -50,9 +60,10 @@ type options struct {
 	official       bool
 	officialName   string
 	officialURL    string
-	perEvent       bool
-	feedValues     stringList
-	tokenValues    stringList
+	perEvent         bool
+	feedValues       stringList
+	tokenValues      stringList
+	authHeaderValues stringList
 }
 
 func main() {
@@ -149,11 +160,12 @@ func parseOptions(args []string) (options, error) {
 	flags.IntVar(&value.maxTracked, "max-tracked", 100_000, "maximum event IDs retained for matching and deduplication")
 	flags.StringVar(&value.format, "format", "table", "output format: table or json")
 	flags.BoolVar(&value.perEvent, "per-event", true, "print each matched event in grpc-benchmark style")
-	flags.BoolVar(&value.official, "official", true, "include the official Feed as endpoint 1")
+	flags.BoolVar(&value.official, "official", false, "include the official Robinhood mainnet Feed")
 	flags.StringVar(&value.officialName, "official-name", "Official", "official Feed display name")
 	flags.StringVar(&value.officialURL, "official-url", feed.OfficialMainnetURL, "official Feed WebSocket URL")
 	flags.Var(&value.feedValues, "feed", "custom feed as NAME=URL; repeatable")
 	flags.Var(&value.tokenValues, "feed-token", "custom feed token as NAME=TOKEN; prefer FEED_TOKEN_N")
+	flags.Var(&value.authHeaderValues, "feed-auth-header", "custom auth header as NAME=Header; empty uses Authorization Bearer; prefer FEED_AUTH_HEADER_N")
 	if err := flags.Parse(args); err != nil {
 		return options{}, err
 	}
@@ -174,6 +186,10 @@ func buildEndpoints(options options) ([]feed.Endpoint, error) {
 	if err != nil {
 		return nil, err
 	}
+	authHeaders, err := parseAssignments(options.authHeaderValues, "feed-auth-header")
+	if err != nil {
+		return nil, err
+	}
 	endpoints := make([]feed.Endpoint, 0, 1+len(options.feedValues))
 	if options.official {
 		endpoints = append(endpoints, feed.Endpoint{Name: strings.TrimSpace(options.officialName), URL: strings.TrimSpace(options.officialURL)})
@@ -183,7 +199,12 @@ func buildEndpoints(options options) ([]feed.Endpoint, error) {
 		if err != nil {
 			return nil, err
 		}
-		endpoints = append(endpoints, feed.Endpoint{Name: name, URL: address, Token: tokens[name]})
+		endpoints = append(endpoints, feed.Endpoint{
+			Name:       name,
+			URL:        address,
+			Token:      tokens[name],
+			AuthHeader: authHeaders[name],
+		})
 	}
 	environment, err := environmentEndpoints()
 	if err != nil {
@@ -210,15 +231,42 @@ func environmentEndpoints() ([]feed.Endpoint, error) {
 	var endpoints []feed.Endpoint
 	for index := 1; index <= 64; index++ {
 		suffix := strconv.Itoa(index)
+		vendor := strings.TrimSpace(os.Getenv("FEED_VENDOR_" + suffix))
+		token := strings.TrimSpace(os.Getenv("FEED_TOKEN_" + suffix))
 		address := strings.TrimSpace(os.Getenv("FEED_URL_" + suffix))
+		name := strings.TrimSpace(os.Getenv("FEED_NAME_" + suffix))
+		authHeader := strings.TrimSpace(os.Getenv("FEED_AUTH_HEADER_" + suffix))
+
+		if vendor != "" {
+			if feed.KnownFormat(vendor) {
+				endpoint, err := feed.ResolveFormat(vendor, address, token, authHeader)
+				if err != nil {
+					return nil, fmt.Errorf("FEED_VENDOR_%s: %w", suffix, err)
+				}
+				if name != "" {
+					endpoint.Name = name
+				}
+				endpoints = append(endpoints, endpoint)
+				continue
+			}
+			// Unknown vendor value: treat as display name for a custom URL.
+			if address == "" {
+				return nil, fmt.Errorf("FEED_VENDOR_%s=%q is unknown; set FEED_URL_%s, or use RHF2 / NitroFeed", suffix, vendor, suffix)
+			}
+			if name == "" {
+				name = vendor
+			}
+			endpoints = append(endpoints, feed.Endpoint{Name: name, URL: address, Token: token, AuthHeader: authHeader})
+			continue
+		}
+
 		if address == "" {
 			continue
 		}
-		name := strings.TrimSpace(os.Getenv("FEED_NAME_" + suffix))
 		if name == "" {
 			name = "Feed_" + suffix
 		}
-		endpoints = append(endpoints, feed.Endpoint{Name: name, URL: address, Token: os.Getenv("FEED_TOKEN_" + suffix)})
+		endpoints = append(endpoints, feed.Endpoint{Name: name, URL: address, Token: token, AuthHeader: authHeader})
 	}
 	return endpoints, nil
 }

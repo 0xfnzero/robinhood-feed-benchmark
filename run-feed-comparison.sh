@@ -1,6 +1,6 @@
 #!/bin/sh
 # Load .env then run feed-benchmark.
-# Configure feeds in .env (FEED_NAME_N / FEED_URL_N); do not hardcode endpoints here.
+# Configure wire formats in .env (FEED_VENDOR_N + FEED_URL_N); do not hardcode endpoints here.
 set -eu
 
 project_dir=$(CDPATH= cd -- "$(dirname -- "$0")" && pwd)
@@ -13,9 +13,9 @@ fi
 
 duration=${FEED_COMPARISON_DURATION:-30s}
 official_flag=
-case "${FEED_INCLUDE_OFFICIAL:-true}" in
-	0|false|FALSE|no|NO|off|OFF)
-		official_flag=--official=false
+case "${FEED_INCLUDE_OFFICIAL:-false}" in
+	1|true|TRUE|yes|YES|on|ON)
+		official_flag=--official
 		;;
 esac
 
