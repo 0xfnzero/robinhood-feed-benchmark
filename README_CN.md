@@ -144,6 +144,19 @@ FEED_COMPARISON_DURATION=45s
 `NitroFeed` 连接 Nitro JSON WebSocket（`ws://` / `wss://`），可选
 `FEED_TOKEN_N` / `FEED_AUTH_HEADER_N`。同一格式多路对比时用 `FEED_NAME_N` 区分。
 
+把 RHF2 转成本地 Nitro WebSocket：
+
+```text
+FEED_VENDOR_1=RHF2
+FEED_URL_1=tcp://0.0.0.0:19770
+NITRO_FEED_PORT=9642
+```
+
+```sh
+./run-rhf2-relay.sh
+# 客户端: ws://127.0.0.1:9642/feed
+```
+
 真实 Token 只写在未提交的 `.env` 里；仓库里的 `.env.copy` / `.env.example` 只用占位符。
 `./run-feed-comparison.sh` 会加载 `.env`，并在 `FEED_INCLUDE_OFFICIAL=true` 时自动加上 `--official`。
 

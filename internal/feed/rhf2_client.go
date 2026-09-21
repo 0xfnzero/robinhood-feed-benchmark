@@ -74,6 +74,10 @@ func runRHF2(ctx context.Context, endpoint Endpoint, maxAge time.Duration, outpu
 	}
 }
 
+func OpenRHF2(ctx context.Context, rawURL string) (net.Conn, error) {
+	return openRHF2(ctx, rawURL)
+}
+
 func openRHF2(ctx context.Context, rawURL string) (net.Conn, error) {
 	parsed, err := url.Parse(rawURL)
 	if err != nil {

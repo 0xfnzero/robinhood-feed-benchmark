@@ -46,13 +46,17 @@ for target in $targets; do
 		CGO_ENABLED=0 GOOS="$goos" GOARCH="$goarch" go build \
 			-trimpath -ldflags "-s -w -X main.version=$version" \
 			-o "$package_dir/feed-benchmark" ./cmd/feed-benchmark
+		CGO_ENABLED=0 GOOS="$goos" GOARCH="$goarch" go build \
+			-trimpath -ldflags "-s -w -X main.version=$version" \
+			-o "$package_dir/rhf2-relay" ./cmd/rhf2-relay
 	)
-	cp "$project_dir/run-feed-comparison.sh" "$package_dir/"
+	cp "$project_dir/run-feed-comparison.sh" "$project_dir/run-rhf2-relay.sh" "$package_dir/"
 	cp "$project_dir/.env.example" "$project_dir/.env.copy" "$package_dir/"
 	cp "$project_dir/README.md" "$project_dir/README_CN.md" "$project_dir/LICENSE" "$package_dir/"
 	printf '%s\n' "$version" > "$package_dir/VERSION"
 	touch "$package_dir/.robinhood-feed-benchmark-install"
-	chmod 0755 "$package_dir/feed-benchmark" "$package_dir/run-feed-comparison.sh"
+	chmod 0755 "$package_dir/feed-benchmark" "$package_dir/rhf2-relay" \
+		"$package_dir/run-feed-comparison.sh" "$package_dir/run-rhf2-relay.sh"
 	COPYFILE_DISABLE=1 tar -C "$staging_dir/$target" -czf "$archive" "$package_name"
 	echo "    $archive"
 done

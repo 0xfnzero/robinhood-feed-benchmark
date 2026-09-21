@@ -131,6 +131,19 @@ FEED_COMPARISON_DURATION=45s
 `FEED_TOKEN_N` / `FEED_AUTH_HEADER_N`. Use `FEED_NAME_N` when comparing multiple
 endpoints of the same format.
 
+To expose an RHF2 push as a local Nitro WebSocket:
+
+```text
+FEED_VENDOR_1=RHF2
+FEED_URL_1=tcp://0.0.0.0:19770
+NITRO_FEED_PORT=9642
+```
+
+```sh
+./run-rhf2-relay.sh
+# clients: ws://127.0.0.1:9642/feed
+```
+
 Keep real tokens in the untracked `.env` file (never commit it).
 `.env.copy` / `.env.example` only contain placeholders.
 `./run-feed-comparison.sh` loads `.env` and passes `--official` when
