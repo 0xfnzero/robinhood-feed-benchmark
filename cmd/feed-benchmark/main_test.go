@@ -67,6 +67,22 @@ func TestBuildEndpointsNitroFeedRequiresURL(t *testing.T) {
 	}
 }
 
+func TestBuildEndpointsAuthTokenAliasAndHostAuth(t *testing.T) {
+	clearFeedEnvironment(t)
+	t.Setenv("FEED_VENDOR_1", "NitroFeed")
+	t.Setenv("FEED_NAME_1", "Cloud")
+	t.Setenv("FEED_URL_1", "wss://robinhood-ohio.flashblock.trade/v1/feed")
+	t.Setenv("FEED_AUTH_TOKEN_1", "api-key")
+
+	endpoints, err := buildEndpoints(options{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(endpoints) != 1 || endpoints[0].AuthHeader != "X-User-ID" || endpoints[0].Token != "api-key" {
+		t.Fatalf("unexpected endpoint: %+v", endpoints)
+	}
+}
+
 func clearFeedEnvironment(t *testing.T) {
 	t.Helper()
 	for index := 1; index <= 64; index++ {
@@ -74,6 +90,7 @@ func clearFeedEnvironment(t *testing.T) {
 		t.Setenv("FEED_URL_"+suffix, "")
 		t.Setenv("FEED_NAME_"+suffix, "")
 		t.Setenv("FEED_TOKEN_"+suffix, "")
+		t.Setenv("FEED_AUTH_TOKEN_"+suffix, "")
 		t.Setenv("FEED_AUTH_HEADER_"+suffix, "")
 		t.Setenv("FEED_VENDOR_"+suffix, "")
 	}

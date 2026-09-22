@@ -127,9 +127,9 @@ FEED_COMPARISON_DURATION=45s
 ```
 
 `RHF2` listens for a binary TCP push (`tcp://host:port`).
-`NitroFeed` connects to a Nitro JSON WebSocket (`ws://` / `wss://`), with optional
-`FEED_TOKEN_N` / `FEED_AUTH_HEADER_N`. Use `FEED_NAME_N` when comparing multiple
-endpoints of the same format.
+`NitroFeed` connects to a Nitro JSON WebSocket (`ws://` / `wss://`).
+Set `FEED_AUTH_TOKEN_N` (alias: `FEED_TOKEN_N`) with your credential; the tool
+chooses path vs header vs Bearer from the `FEED_URL` host automatically.
 
 To expose an RHF2 push as a local Nitro WebSocket:
 

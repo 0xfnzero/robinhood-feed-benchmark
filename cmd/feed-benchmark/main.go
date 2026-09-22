@@ -38,6 +38,9 @@ Examples:
   #   FEED_VENDOR_2=NitroFeed
   #   FEED_NAME_2=Ours
   #   FEED_URL_2=ws://127.0.0.1:9642/feed
+  #   FEED_VENDOR_3=NitroFeed
+  #   FEED_URL_3=wss://<provider-host>/...
+  #   FEED_AUTH_TOKEN_3=<token>   # host decides path vs header vs Bearer
 `
 
 var version = "dev"
@@ -164,8 +167,8 @@ func parseOptions(args []string) (options, error) {
 	flags.StringVar(&value.officialName, "official-name", "Official", "official Feed display name")
 	flags.StringVar(&value.officialURL, "official-url", feed.OfficialMainnetURL, "official Feed WebSocket URL")
 	flags.Var(&value.feedValues, "feed", "custom feed as NAME=URL; repeatable")
-	flags.Var(&value.tokenValues, "feed-token", "custom feed token as NAME=TOKEN; prefer FEED_TOKEN_N")
-	flags.Var(&value.authHeaderValues, "feed-auth-header", "custom auth header as NAME=Header; empty uses Authorization Bearer; prefer FEED_AUTH_HEADER_N")
+	flags.Var(&value.tokenValues, "feed-token", "custom feed token as NAME=TOKEN; prefer FEED_AUTH_TOKEN_N (alias FEED_TOKEN_N)")
+	flags.Var(&value.authHeaderValues, "feed-auth-header", "custom auth header as NAME=Header; empty lets host inference choose; prefer FEED_AUTH_HEADER_N")
 	if err := flags.Parse(args); err != nil {
 		return options{}, err
 	}
@@ -199,12 +202,16 @@ func buildEndpoints(options options) ([]feed.Endpoint, error) {
 		if err != nil {
 			return nil, err
 		}
-		endpoints = append(endpoints, feed.Endpoint{
+		endpoint, err := feed.ApplyHostAuth(feed.Endpoint{
 			Name:       name,
 			URL:        address,
 			Token:      tokens[name],
 			AuthHeader: authHeaders[name],
 		})
+		if err != nil {
+			return nil, err
+		}
+		endpoints = append(endpoints, endpoint)
 	}
 	environment, err := environmentEndpoints()
 	if err != nil {
@@ -232,7 +239,10 @@ func environmentEndpoints() ([]feed.Endpoint, error) {
 	for index := 1; index <= 64; index++ {
 		suffix := strconv.Itoa(index)
 		vendor := strings.TrimSpace(os.Getenv("FEED_VENDOR_" + suffix))
-		token := strings.TrimSpace(os.Getenv("FEED_TOKEN_" + suffix))
+		token := firstNonEmpty(
+			os.Getenv("FEED_AUTH_TOKEN_"+suffix),
+			os.Getenv("FEED_TOKEN_"+suffix),
+		)
 		address := strings.TrimSpace(os.Getenv("FEED_URL_" + suffix))
 		name := strings.TrimSpace(os.Getenv("FEED_NAME_" + suffix))
 		authHeader := strings.TrimSpace(os.Getenv("FEED_AUTH_HEADER_" + suffix))
@@ -256,7 +266,11 @@ func environmentEndpoints() ([]feed.Endpoint, error) {
 			if name == "" {
 				name = vendor
 			}
-			endpoints = append(endpoints, feed.Endpoint{Name: name, URL: address, Token: token, AuthHeader: authHeader})
+			endpoint, err := feed.ApplyHostAuth(feed.Endpoint{Name: name, URL: address, Token: token, AuthHeader: authHeader})
+			if err != nil {
+				return nil, err
+			}
+			endpoints = append(endpoints, endpoint)
 			continue
 		}
 
@@ -266,9 +280,22 @@ func environmentEndpoints() ([]feed.Endpoint, error) {
 		if name == "" {
 			name = "Feed_" + suffix
 		}
-		endpoints = append(endpoints, feed.Endpoint{Name: name, URL: address, Token: token, AuthHeader: authHeader})
+		endpoint, err := feed.ApplyHostAuth(feed.Endpoint{Name: name, URL: address, Token: token, AuthHeader: authHeader})
+		if err != nil {
+			return nil, err
+		}
+		endpoints = append(endpoints, endpoint)
 	}
 	return endpoints, nil
+}
+
+func firstNonEmpty(values ...string) string {
+	for _, value := range values {
+		if trimmed := strings.TrimSpace(value); trimmed != "" {
+			return trimmed
+		}
+	}
+	return ""
 }
 
 func parseAssignments(values []string, kind string) (map[string]string, error) {

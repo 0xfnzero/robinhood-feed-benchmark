@@ -40,12 +40,13 @@ func ResolveFormat(format, feedURL, token, authHeader string) (Endpoint, error) 
 		if err := requireURLScheme(address, "ws", "wss"); err != nil {
 			return Endpoint{}, fmt.Errorf("%s: %w", VendorNitroFeed, err)
 		}
-		return Endpoint{
+		endpoint := Endpoint{
 			Name:       VendorNitroFeed,
 			URL:        address,
 			Token:      credential,
 			AuthHeader: header,
-		}, nil
+		}
+		return ApplyHostAuth(endpoint)
 
 	default:
 		return Endpoint{}, fmt.Errorf("unknown feed format %q (supported: %s, %s)", format, VendorRHF2, VendorNitroFeed)

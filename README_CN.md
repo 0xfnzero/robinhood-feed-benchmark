@@ -141,8 +141,9 @@ FEED_COMPARISON_DURATION=45s
 ```
 
 `RHF2` 监听二进制 TCP 推送（`tcp://host:port`）。
-`NitroFeed` 连接 Nitro JSON WebSocket（`ws://` / `wss://`），可选
-`FEED_TOKEN_N` / `FEED_AUTH_HEADER_N`。同一格式多路对比时用 `FEED_NAME_N` 区分。
+`NitroFeed` 连接 Nitro JSON WebSocket（`ws://` / `wss://`）。
+凭证统一填 `FEED_AUTH_TOKEN_N`（兼容别名 `FEED_TOKEN_N`）；工具会根据
+`FEED_URL` 的域名自动选择路径拼接、请求头或 Bearer。
 
 把 RHF2 转成本地 Nitro WebSocket：
 
