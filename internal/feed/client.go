@@ -71,12 +71,30 @@ func ValidateEndpoint(endpoint Endpoint) error {
 			return fmt.Errorf("feed %q RHF2 URL must include a port", endpoint.Name)
 		}
 		return nil
+	case "direct", "direct-listen", "tcp-direct":
+		if parsed.Port() == "" {
+			return fmt.Errorf("feed %q DIRECT URL must include a port", endpoint.Name)
+		}
+		return nil
+	case "ngf1", "ngf1-listen":
+		if parsed.Port() == "" {
+			return fmt.Errorf("feed %q NGF1 URL must include a port", endpoint.Name)
+		}
+		return nil
 	default:
-		return fmt.Errorf("feed %q must use ws, wss, or tcp/rhf2", endpoint.Name)
+		return fmt.Errorf("feed %q must use ws, wss, tcp/rhf2, direct, or ngf1", endpoint.Name)
 	}
 }
 
 func Run(ctx context.Context, endpoint Endpoint, maxAge time.Duration, output chan<- Update) {
+	if IsNGF1Endpoint(endpoint) {
+		runNGF1(ctx, endpoint, maxAge, output)
+		return
+	}
+	if IsDirectEndpoint(endpoint) {
+		runDirect(ctx, endpoint, maxAge, output)
+		return
+	}
 	if IsRHF2Endpoint(endpoint) {
 		runRHF2(ctx, endpoint, maxAge, output)
 		return
