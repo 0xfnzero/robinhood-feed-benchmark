@@ -30,20 +30,19 @@ Built-in formats:
   NitroFeed Nitro JSON WS       (FEED_URL=ws://... or wss://...)
   DIRECT    DIRECT binary TCP   (FEED_URL=direct://0.0.0.0:19780)
   NGF1      NGF1 envelope TCP   (FEED_URL=ngf1://0.0.0.0:19780)
+  RBH1      RBH1 binary WS/TCP  (FEED_URL=ws://host:9642/bin or rbh1://host:19791)
 
 Examples:
   feed-benchmark --feed A=wss://a.example.com --feed B=wss://b.example.com
   feed-benchmark --official --feed Ours=ws://127.0.0.1:9642/feed
+  feed-benchmark --official --feed RBH1=ws://127.0.0.1:9642/bin --feed-token RBH1=xt_... --feed-auth-header RBH1=X-Token
   feed-benchmark --feed NGF1=ngf1://0.0.0.0:19780 --feed Gateway=ws://127.0.0.1:9642/feed
   # .env:
-  #   FEED_VENDOR_1=RHF2
-  #   FEED_URL_1=tcp://0.0.0.0:19770
-  #   FEED_VENDOR_2=NGF1
-  #   FEED_URL_2=ngf1://0.0.0.0:19780
-  #   FEED_VENDOR_3=NitroFeed
-  #   FEED_NAME_3=Ours
-  #   FEED_URL_3=ws://127.0.0.1:9642/feed
-  #   FEED_AUTH_TOKEN_3=<token>   # host decides path vs header vs Bearer
+  #   FEED_VENDOR_1=RBH1
+  #   FEED_URL_1=ws://127.0.0.1:9642/bin
+  #   FEED_AUTH_TOKEN_1=<token>
+  #   FEED_AUTH_HEADER_1=X-Token
+  #   FEED_INCLUDE_OFFICIAL=true
 `
 
 var version = "dev"

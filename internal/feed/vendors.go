@@ -11,10 +11,12 @@ const (
 	VendorNitroFeed = "NitroFeed"
 	VendorDirect    = "DIRECT"
 	VendorNGF1      = "NGF1"
+	VendorRBH1      = "RBH1"
 
 	RHF2DefaultListenURL   = "tcp://0.0.0.0:19770"
 	DirectDefaultListenURL = "direct://0.0.0.0:19780"
 	NGF1DefaultListenURL   = "ngf1://0.0.0.0:19780"
+	RBH1DefaultURL         = "ws://127.0.0.1:9642/bin"
 )
 
 // ResolveFormat builds an Endpoint from a wire-format name (not a brand).
@@ -23,6 +25,7 @@ const (
 //	NitroFeed — Nitro JSON WebSocket; URL like ws://host/feed or wss://host/feed
 //	DIRECT    — DIRECT binary TCP; URL like direct://0.0.0.0:19780
 //	NGF1      — NGF1 envelope over TCP; URL like ngf1://0.0.0.0:19780
+//	RBH1      — RBH1 binary (WSS /bin or TCP); URL like ws://host/bin or rbh1://host:19791
 func ResolveFormat(format, feedURL, token, authHeader string) (Endpoint, error) {
 	name := strings.TrimSpace(format)
 	address := strings.TrimSpace(feedURL)
@@ -62,6 +65,28 @@ func ResolveFormat(format, feedURL, token, authHeader string) (Endpoint, error) 
 		}
 		return Endpoint{Name: VendorNGF1, URL: address}, nil
 
+	case "rbh1":
+		if address == "" {
+			address = RBH1DefaultURL
+		}
+		// Normalize bare tcp://host:port → rbh1:// so it is not treated as RHF2.
+		if strings.HasPrefix(strings.ToLower(address), "tcp://") {
+			address = "rbh1://" + address[len("tcp://"):]
+		}
+		if err := requireURLScheme(address, "ws", "wss", "rbh1", "rbh1-listen", "tcp-rbh1"); err != nil {
+			return Endpoint{}, fmt.Errorf("%s: %w (example: %s or rbh1://127.0.0.1:19791)", VendorRBH1, err, RBH1DefaultURL)
+		}
+		endpoint := Endpoint{
+			Name:       VendorRBH1,
+			URL:        address,
+			Token:      credential,
+			AuthHeader: header,
+		}
+		if header == "" && (strings.HasPrefix(strings.ToLower(address), "ws://") || strings.HasPrefix(strings.ToLower(address), "wss://")) {
+			endpoint.AuthHeader = "X-Token"
+		}
+		return ApplyHostAuth(endpoint)
+
 	case "nitrofeed", "nitro":
 		if address == "" {
 			return Endpoint{}, fmt.Errorf("%s requires FEED_URL (ws:// or wss://)", VendorNitroFeed)
@@ -78,14 +103,14 @@ func ResolveFormat(format, feedURL, token, authHeader string) (Endpoint, error) 
 		return ApplyHostAuth(endpoint)
 
 	default:
-		return Endpoint{}, fmt.Errorf("unknown feed format %q (supported: %s, %s, %s, %s)", format, VendorRHF2, VendorNitroFeed, VendorDirect, VendorNGF1)
+		return Endpoint{}, fmt.Errorf("unknown feed format %q (supported: %s, %s, %s, %s, %s)", format, VendorRHF2, VendorNitroFeed, VendorDirect, VendorNGF1, VendorRBH1)
 	}
 }
 
 // KnownFormat reports whether name is a built-in wire format.
 func KnownFormat(name string) bool {
 	switch strings.ToLower(strings.TrimSpace(name)) {
-	case "rhf2", "nitrofeed", "nitro", "direct", "ngf1":
+	case "rhf2", "nitrofeed", "nitro", "direct", "ngf1", "rbh1":
 		return true
 	default:
 		return false

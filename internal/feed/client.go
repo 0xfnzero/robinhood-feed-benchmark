@@ -81,8 +81,13 @@ func ValidateEndpoint(endpoint Endpoint) error {
 			return fmt.Errorf("feed %q NGF1 URL must include a port", endpoint.Name)
 		}
 		return nil
+	case "rbh1", "rbh1-listen", "tcp-rbh1":
+		if parsed.Port() == "" {
+			return fmt.Errorf("feed %q RBH1 URL must include a port", endpoint.Name)
+		}
+		return nil
 	default:
-		return fmt.Errorf("feed %q must use ws, wss, tcp/rhf2, direct, or ngf1", endpoint.Name)
+		return fmt.Errorf("feed %q must use ws, wss, tcp/rhf2, direct, ngf1, or rbh1", endpoint.Name)
 	}
 }
 
@@ -93,6 +98,10 @@ func Run(ctx context.Context, endpoint Endpoint, maxAge time.Duration, output ch
 	}
 	if IsDirectEndpoint(endpoint) {
 		runDirect(ctx, endpoint, maxAge, output)
+		return
+	}
+	if IsRBH1Endpoint(endpoint) {
+		runRBH1(ctx, endpoint, maxAge, output)
 		return
 	}
 	if IsRHF2Endpoint(endpoint) {
@@ -223,6 +232,30 @@ func consume(ctx context.Context, name string, connection *websocket.Conn, maxAg
 			return progress, errors.New("connection closed")
 		}
 		if messageType != websocket.TextMessage && messageType != websocket.BinaryMessage {
+			continue
+		}
+		// Gateway /bin: one RBH1 binary frame per WebSocket message.
+		if messageType == websocket.BinaryMessage && IsRBH1Wire(payload) {
+			frame, _, err := DecodeRBH1Frame(payload)
+			if err != nil {
+				continue
+			}
+			if frame.Frag != nil || frame.TxIndex != 0 {
+				continue
+			}
+			progress = true
+			observation := ObservationFromRBH1(frame)
+			age := receivedAt.Sub(observation.FeedTimestamp)
+			if age < -maxAge || age > maxAge {
+				continue
+			}
+			if !send(ctx, output, Update{
+				Kind: UpdateObservation, Endpoint: name, At: receivedAt,
+				Sequence: observation.SequenceNumber, BlockHash: observation.BlockHash,
+				FeedTimestamp: observation.FeedTimestamp, FrameBytes: frame.Size,
+			}) {
+				return progress, ctx.Err()
+			}
 			continue
 		}
 		observations, err := DecodeObservations(payload)
