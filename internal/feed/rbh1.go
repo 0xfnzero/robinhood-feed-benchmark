@@ -1,6 +1,7 @@
 package feed
 
 import (
+	"context"
 	"encoding/binary"
 	"errors"
 	"fmt"
@@ -115,8 +116,8 @@ func DecodeRBH1Frame(data []byte) (RBH1Frame, int, error) {
 	}, total, nil
 }
 
-// ObservationFromRBH1 builds a benchmark observation for a block's first transaction.
-// Matching is by sequence (RBH1 has no Nitro blockHash).
+// ObservationFromRBH1 builds a race observation for one eth_tx unit (seq, tx_index).
+// Matching is by (seq, tx_index); RBH1 has no Nitro blockHash.
 func ObservationFromRBH1(frame RBH1Frame) Observation {
 	var ts time.Time
 	if frame.HasEvent && frame.EventNS > 0 {
@@ -126,9 +127,63 @@ func ObservationFromRBH1(frame RBH1Frame) Observation {
 	}
 	return Observation{
 		SequenceNumber: uint64(frame.Seq),
+		TxIndex:        uint32(frame.TxIndex),
 		BlockHash:      "",
 		FeedTimestamp:  ts,
 	}
+}
+
+// emitRBH1Frame publishes one complete RBH1 unit into the race channel.
+// KIND_ETH_TX → one (seq, tx_index) event; KIND_NITRO → expand Batch/messages.
+// Returns false if the consumer context is cancelled.
+func emitRBH1Frame(
+	ctx context.Context,
+	name string,
+	frame RBH1Frame,
+	receivedAt time.Time,
+	maxAge time.Duration,
+	frameBytes int,
+	output chan<- Update,
+) bool {
+	if frame.Kind == rbh1KindNitro {
+		observations, err := DecodeObservations(frame.Payload)
+		if err != nil {
+			return true
+		}
+		for i, observation := range observations {
+			age := receivedAt.Sub(observation.FeedTimestamp)
+			if maxAge > 0 && (age < -maxAge || age > maxAge) {
+				continue
+			}
+			bytes := 0
+			if i == 0 {
+				bytes = frameBytes
+			}
+			if !send(ctx, output, Update{
+				Kind: UpdateObservation, Endpoint: name, At: receivedAt,
+				Sequence: observation.SequenceNumber, TxIndex: observation.TxIndex,
+				BlockHash: observation.BlockHash,
+				FeedTimestamp: observation.FeedTimestamp, FrameBytes: bytes,
+			}) {
+				return false
+			}
+		}
+		return true
+	}
+	if frame.Kind != rbh1KindEthTx {
+		return true
+	}
+	observation := ObservationFromRBH1(frame)
+	age := receivedAt.Sub(observation.FeedTimestamp)
+	if maxAge > 0 && (age < -maxAge || age > maxAge) {
+		return true
+	}
+	return send(ctx, output, Update{
+		Kind: UpdateObservation, Endpoint: name, At: receivedAt,
+		Sequence: observation.SequenceNumber, TxIndex: observation.TxIndex,
+		BlockHash: observation.BlockHash,
+		FeedTimestamp: observation.FeedTimestamp, FrameBytes: frameBytes,
+	})
 }
 
 // IsRBH1Wire reports whether payload looks like a complete RBH1 frame prefix.

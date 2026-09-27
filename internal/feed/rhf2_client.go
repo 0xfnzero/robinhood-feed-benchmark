@@ -136,8 +136,6 @@ func tuneTCP(conn net.Conn) {
 func consumeRHF2(ctx context.Context, name string, conn net.Conn, maxAge time.Duration, output chan<- Update) (bool, error) {
 	buf := make([]byte, 0, 256<<10)
 	tmp := make([]byte, 64<<10)
-	var lastSeq uint32
-	var hasLast bool
 	progress := false
 	for {
 		if err := conn.SetReadDeadline(time.Now().Add(readTimeout)); err != nil {
@@ -165,14 +163,6 @@ func consumeRHF2(ctx context.Context, name string, conn net.Conn, maxAge time.Du
 				}
 				buf = buf[consumed:]
 				progress = true
-				if frame.TxIndex != 0 {
-					continue
-				}
-				if hasLast && frame.SeqTo == lastSeq {
-					continue
-				}
-				lastSeq = frame.SeqTo
-				hasLast = true
 				observation := ObservationFromRHF2(frame)
 				age := receivedAt.Sub(observation.FeedTimestamp)
 				if age < -maxAge || age > maxAge {
@@ -180,7 +170,8 @@ func consumeRHF2(ctx context.Context, name string, conn net.Conn, maxAge time.Du
 				}
 				if !send(ctx, output, Update{
 					Kind: UpdateObservation, Endpoint: name, At: receivedAt,
-					Sequence: observation.SequenceNumber, BlockHash: observation.BlockHash,
+					Sequence: observation.SequenceNumber, TxIndex: observation.TxIndex,
+					BlockHash: observation.BlockHash,
 					FeedTimestamp: observation.FeedTimestamp, FrameBytes: frame.Size,
 				}) {
 					return progress, ctx.Err()

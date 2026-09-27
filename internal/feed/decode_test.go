@@ -2,6 +2,7 @@ package feed
 
 import (
 	"context"
+	"encoding/base64"
 	"errors"
 	"fmt"
 	"net/http"
@@ -96,5 +97,51 @@ func TestValidateEndpoint(t *testing.T) {
 		if err := ValidateEndpoint(Endpoint{Name: "test", URL: address}); err == nil {
 			t.Errorf("%s unexpectedly accepted", address)
 		}
+	}
+}
+
+func TestDecodeObservationsBatch(t *testing.T) {
+	hash := "0x" + fmt.Sprintf("%064x", 42)
+	// Concat layout (legacy): Batch(kind=3) + two SignedTx typed stubs.
+	l2Concat := []byte{3, 4, 0x02, 0x80, 4, 0x02, 0x80}
+	// Gateway / Nitro layout: u64 BE length-prefix per child.
+	l2LenPref := []byte{
+		3,
+		0, 0, 0, 0, 0, 0, 0, 3, 4, 0x02, 0x80,
+		0, 0, 0, 0, 0, 0, 0, 3, 4, 0x02, 0x80,
+	}
+	for _, l2 := range [][]byte{l2Concat, l2LenPref} {
+		payload := []byte(fmt.Sprintf(
+			`{"version":1,"messages":[{"sequenceNumber":99,"blockHash":%q,"message":{"message":{"header":{"timestamp":1700000000},"l2Msg":%q}}}]}`,
+			hash, base64.StdEncoding.EncodeToString(l2)))
+		observations, err := DecodeObservations(payload)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if len(observations) != 2 {
+			t.Fatalf("want 2 txs, got %+v (l2=%x)", observations, l2)
+		}
+		if observations[0].TxIndex != 0 || observations[1].TxIndex != 1 {
+			t.Fatalf("tx indexes: %+v", observations)
+		}
+		if observations[0].SequenceNumber != 99 {
+			t.Fatalf("seq: %+v", observations)
+		}
+	}
+}
+
+func TestDecodeObservationsMultiMessageSameSeq(t *testing.T) {
+	hash := "0x" + fmt.Sprintf("%064x", 7)
+	l2a := base64.StdEncoding.EncodeToString([]byte{4, 0x02, 0x80})
+	l2b := base64.StdEncoding.EncodeToString([]byte{4, 0x02, 0x80})
+	payload := []byte(fmt.Sprintf(
+		`{"version":1,"messages":[{"sequenceNumber":5,"blockHash":%q,"message":{"message":{"header":{"timestamp":1},"l2Msg":%q}}},{"sequenceNumber":5,"blockHash":%q,"message":{"message":{"header":{"timestamp":1},"l2Msg":%q}}}]}`,
+		hash, l2a, hash, l2b))
+	observations, err := DecodeObservations(payload)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(observations) != 2 || observations[0].TxIndex != 0 || observations[1].TxIndex != 1 {
+		t.Fatalf("got %+v", observations)
 	}
 }

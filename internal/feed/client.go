@@ -30,7 +30,8 @@ type Endpoint struct {
 	Name       string
 	URL        string
 	Token      string            // credential value
-	AuthHeader string            // if empty, Token is sent as Authorization: Bearer <Token>
+	AuthHeader string            // if set, dial sends <AuthHeader>: <Token>
+	AuthStyle  string            // bearer | header | path — if set, skips host inference
 	Headers    map[string]string // optional extra headers
 }
 
@@ -49,6 +50,7 @@ type Update struct {
 	At            time.Time
 	ConnectTime   time.Duration
 	Sequence      uint64
+	TxIndex       uint32 // per-seq tx ordinal (RHF2/RBH1/DIRECT/Nitro Batch)
 	BlockHash     string
 	FeedTimestamp time.Time
 	FrameBytes    int
@@ -81,13 +83,13 @@ func ValidateEndpoint(endpoint Endpoint) error {
 			return fmt.Errorf("feed %q NGF1 URL must include a port", endpoint.Name)
 		}
 		return nil
-	case "rbh1", "rbh1-listen", "tcp-rbh1":
+	case "rbh1", "rbh1-listen", "tcp-rbh1", "udp", "udp-rbh1", "rbh1-udp":
 		if parsed.Port() == "" {
 			return fmt.Errorf("feed %q RBH1 URL must include a port", endpoint.Name)
 		}
 		return nil
 	default:
-		return fmt.Errorf("feed %q must use ws, wss, tcp/rhf2, direct, ngf1, or rbh1", endpoint.Name)
+		return fmt.Errorf("feed %q must use ws, wss, tcp/rhf2, direct, ngf1, rbh1, or udp", endpoint.Name)
 	}
 }
 
@@ -240,20 +242,11 @@ func consume(ctx context.Context, name string, connection *websocket.Conn, maxAg
 			if err != nil {
 				continue
 			}
-			if frame.Frag != nil || frame.TxIndex != 0 {
-				continue
+			if frame.Frag != nil {
+				continue // WS carries complete units only
 			}
 			progress = true
-			observation := ObservationFromRBH1(frame)
-			age := receivedAt.Sub(observation.FeedTimestamp)
-			if age < -maxAge || age > maxAge {
-				continue
-			}
-			if !send(ctx, output, Update{
-				Kind: UpdateObservation, Endpoint: name, At: receivedAt,
-				Sequence: observation.SequenceNumber, BlockHash: observation.BlockHash,
-				FeedTimestamp: observation.FeedTimestamp, FrameBytes: frame.Size,
-			}) {
+			if !emitRBH1Frame(ctx, name, frame, receivedAt, maxAge, len(payload), output) {
 				return progress, ctx.Err()
 			}
 			continue
@@ -275,7 +268,8 @@ func consume(ctx context.Context, name string, connection *websocket.Conn, maxAg
 			}
 			if !send(ctx, output, Update{
 				Kind: UpdateObservation, Endpoint: name, At: receivedAt,
-				Sequence: observation.SequenceNumber, BlockHash: observation.BlockHash,
+				Sequence: observation.SequenceNumber, TxIndex: observation.TxIndex,
+				BlockHash: observation.BlockHash,
 				FeedTimestamp: observation.FeedTimestamp, FrameBytes: frameBytes,
 			}) {
 				return progress, ctx.Err()

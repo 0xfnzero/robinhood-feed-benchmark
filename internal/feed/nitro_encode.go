@@ -10,6 +10,7 @@ import (
 
 const (
 	nitroEnvelopeVersion     = 1
+	l2MessageKindBatch       = 3
 	l2MessageKindSignedTx    = 4
 	l1MessageTypeL2Message   = 3
 	nitroSequencerSender     = "0xa4b000000000000000000073657175656e636572"

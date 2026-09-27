@@ -30,7 +30,7 @@ Built-in formats:
   NitroFeed Nitro JSON WS       (FEED_URL=ws://... or wss://...)
   DIRECT    DIRECT binary TCP   (FEED_URL=direct://0.0.0.0:19780)
   NGF1      NGF1 envelope TCP   (FEED_URL=ngf1://0.0.0.0:19780)
-  RBH1      RBH1 binary WS/TCP  (FEED_URL=ws://host:9642/bin or rbh1://host:19791)
+  RBH1      RBH1 binary WS/TCP/UDP  (FEED_URL=ws://host/bin, rbh1://host:19791, or udp://0.0.0.0:19792)
 
 Examples:
   feed-benchmark --feed A=wss://a.example.com --feed B=wss://b.example.com
@@ -69,6 +69,7 @@ type options struct {
 	feedValues       stringList
 	tokenValues      stringList
 	authHeaderValues stringList
+	authStyleValues  stringList
 }
 
 func main() {
@@ -170,7 +171,8 @@ func parseOptions(args []string) (options, error) {
 	flags.StringVar(&value.officialURL, "official-url", feed.OfficialMainnetURL, "official Feed WebSocket URL")
 	flags.Var(&value.feedValues, "feed", "custom feed as NAME=URL; repeatable")
 	flags.Var(&value.tokenValues, "feed-token", "custom feed token as NAME=TOKEN; prefer FEED_AUTH_TOKEN_N (alias FEED_TOKEN_N)")
-	flags.Var(&value.authHeaderValues, "feed-auth-header", "custom auth header as NAME=Header; empty lets host inference choose; prefer FEED_AUTH_HEADER_N")
+	flags.Var(&value.authHeaderValues, "feed-auth-header", "custom auth header as NAME=Header; prefer FEED_AUTH_HEADER_N")
+	flags.Var(&value.authStyleValues, "feed-auth-style", "force auth style as NAME=bearer|header|path (skips host inference); prefer FEED_AUTH_STYLE_N")
 	if err := flags.Parse(args); err != nil {
 		return options{}, err
 	}
@@ -195,6 +197,10 @@ func buildEndpoints(options options) ([]feed.Endpoint, error) {
 	if err != nil {
 		return nil, err
 	}
+	authStyles, err := parseAssignments(options.authStyleValues, "feed-auth-style")
+	if err != nil {
+		return nil, err
+	}
 	endpoints := make([]feed.Endpoint, 0, 1+len(options.feedValues))
 	if options.official {
 		endpoints = append(endpoints, feed.Endpoint{Name: strings.TrimSpace(options.officialName), URL: strings.TrimSpace(options.officialURL)})
@@ -204,11 +210,12 @@ func buildEndpoints(options options) ([]feed.Endpoint, error) {
 		if err != nil {
 			return nil, err
 		}
-		endpoint, err := feed.ApplyHostAuth(feed.Endpoint{
+		endpoint, err := feed.ApplyAuth(feed.Endpoint{
 			Name:       name,
 			URL:        address,
 			Token:      tokens[name],
 			AuthHeader: authHeaders[name],
+			AuthStyle:  authStyles[name],
 		})
 		if err != nil {
 			return nil, err
@@ -248,6 +255,7 @@ func environmentEndpoints() ([]feed.Endpoint, error) {
 		address := strings.TrimSpace(os.Getenv("FEED_URL_" + suffix))
 		name := strings.TrimSpace(os.Getenv("FEED_NAME_" + suffix))
 		authHeader := strings.TrimSpace(os.Getenv("FEED_AUTH_HEADER_" + suffix))
+		authStyle := strings.TrimSpace(os.Getenv("FEED_AUTH_STYLE_" + suffix))
 
 		if vendor != "" {
 			if feed.KnownFormat(vendor) {
@@ -257,6 +265,13 @@ func environmentEndpoints() ([]feed.Endpoint, error) {
 				}
 				if name != "" {
 					endpoint.Name = name
+				}
+				if authStyle != "" {
+					endpoint.AuthStyle = authStyle
+					endpoint, err = feed.ApplyAuth(endpoint)
+					if err != nil {
+						return nil, fmt.Errorf("FEED_VENDOR_%s: %w", suffix, err)
+					}
 				}
 				endpoints = append(endpoints, endpoint)
 				continue
@@ -268,7 +283,7 @@ func environmentEndpoints() ([]feed.Endpoint, error) {
 			if name == "" {
 				name = vendor
 			}
-			endpoint, err := feed.ApplyHostAuth(feed.Endpoint{Name: name, URL: address, Token: token, AuthHeader: authHeader})
+			endpoint, err := feed.ApplyAuth(feed.Endpoint{Name: name, URL: address, Token: token, AuthHeader: authHeader, AuthStyle: authStyle})
 			if err != nil {
 				return nil, err
 			}
@@ -282,7 +297,7 @@ func environmentEndpoints() ([]feed.Endpoint, error) {
 		if name == "" {
 			name = "Feed_" + suffix
 		}
-		endpoint, err := feed.ApplyHostAuth(feed.Endpoint{Name: name, URL: address, Token: token, AuthHeader: authHeader})
+		endpoint, err := feed.ApplyAuth(feed.Endpoint{Name: name, URL: address, Token: token, AuthHeader: authHeader, AuthStyle: authStyle})
 		if err != nil {
 			return nil, err
 		}

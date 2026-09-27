@@ -71,11 +71,12 @@ func DecodeRHF2Frame(data []byte) (RHF2Frame, int, error) {
 	return frame, total, nil
 }
 
-// ObservationFromRHF2 builds a benchmark observation for a block's first transaction.
+// ObservationFromRHF2 builds a race observation for one eth tx (seq, tx_index).
 func ObservationFromRHF2(frame RHF2Frame) Observation {
 	return Observation{
 		SequenceNumber: uint64(frame.SeqTo),
-		BlockHash:      "", // bare-metal stream has no Nitro blockHash; matching is by sequence
+		TxIndex:        uint32(frame.TxIndex),
+		BlockHash:      "", // bare-metal stream has no Nitro blockHash; match by (seq, tx_index)
 		FeedTimestamp:  time.Unix(int64(frame.Timestamp), 0), // #nosec G115 -- feed timestamps are unix seconds
 	}
 }

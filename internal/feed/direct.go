@@ -113,8 +113,8 @@ func DecodeDirectPayload(payload []byte, eventNS, sendNS uint64) (DirectFrame, e
 	}, nil
 }
 
-// ObservationFromDirectITEM builds a race observation from the first-seen ITEM
-// for a sequence (first-arrival race path).
+// ObservationFromDirectITEM builds a race observation for one ITEM.
+// Matching is by (sequence, ordinal) — ordinal maps to TxIndex.
 func ObservationFromDirectITEM(frame DirectFrame, receivedAt time.Time) Observation {
 	feedTS := receivedAt
 	if frame.RelayEventNS > 0 {
@@ -122,7 +122,8 @@ func ObservationFromDirectITEM(frame DirectFrame, receivedAt time.Time) Observat
 	}
 	return Observation{
 		SequenceNumber: frame.Sequence,
-		BlockHash:      "", // DIRECT has no Nitro blockHash; match by sequence
+		TxIndex:        frame.Ordinal,
+		BlockHash:      "", // DIRECT has no Nitro blockHash; match by (seq, ordinal)
 		FeedTimestamp:  feedTS,
 	}
 }

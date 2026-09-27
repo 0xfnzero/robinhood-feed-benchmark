@@ -17,6 +17,7 @@ type Config struct {
 
 type eventKey struct {
 	sequence uint64
+	txIndex  uint32
 }
 
 type pendingEvent struct {
@@ -69,9 +70,10 @@ type Arrival struct {
 	Winner  string // earliest endpoint name (may tie)
 }
 
-// MatchEvent is emitted when every endpoint has seen the same sequencer message.
+// MatchEvent is emitted when every endpoint has seen the same (seq, tx_index).
 type MatchEvent struct {
 	Sequence  uint64
+	TxIndex   uint32
 	BlockHash string
 	Winner    string
 	Arrivals  []Arrival
@@ -177,7 +179,7 @@ func (r *Runner) Add(update feed.Update) *MatchEvent {
 }
 
 func (r *Runner) addObservation(state *endpointState, update feed.Update) *MatchEvent {
-	key := eventKey{sequence: update.Sequence}
+	key := eventKey{sequence: update.Sequence, txIndex: update.TxIndex}
 	if !state.seen.Add(key) {
 		return nil
 	}
@@ -263,7 +265,8 @@ func (r *Runner) finalize(event *pendingEvent) *MatchEvent {
 	}
 	r.common++
 	return &MatchEvent{
-		Sequence: event.key.sequence, BlockHash: event.blockHash,
+		Sequence: event.key.sequence, TxIndex: event.key.txIndex,
+		BlockHash: event.blockHash,
 		Winner: winner, Arrivals: arrivals,
 	}
 }
@@ -376,16 +379,17 @@ func WriteMatchEvent(w io.Writer, match *MatchEvent, nameWidth int) {
 	ts := time.Now().Format("15:04:05.000")
 	for _, arrival := range match.Arrivals {
 		name := fmt.Sprintf("%-*s", nameWidth, arrival.Name)
+		label := fmt.Sprintf("seq %d tx %d", match.Sequence, match.TxIndex)
 		if arrival.First {
-			fmt.Fprintf(w, "[%s] %s 接收 seq %d: 首次接收\n", ts, name, match.Sequence)
+			fmt.Fprintf(w, "[%s] %s 接收 %s: 首次接收\n", ts, name, label)
 			continue
 		}
 		ms := float64(arrival.Lag) / float64(time.Millisecond)
 		if ms < 0.01 {
 			continue
 		}
-		fmt.Fprintf(w, "[%s] %s 接收 seq %d: 延迟 %6.2fms (相对于 %s)\n",
-			ts, name, match.Sequence, ms, match.Winner)
+		fmt.Fprintf(w, "[%s] %s 接收 %s: 延迟 %6.2fms (相对于 %s)\n",
+			ts, name, label, ms, match.Winner)
 	}
 	if flusher, ok := w.(interface{ Flush() error }); ok {
 		_ = flusher.Flush()

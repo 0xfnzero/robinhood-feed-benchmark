@@ -70,10 +70,10 @@ func TestWriteMatchEventGrpcStyle(t *testing.T) {
 	var buf strings.Builder
 	WriteMatchEvent(&buf, match, 8)
 	out := buf.String()
-	if !strings.Contains(out, "Ours     接收 seq 42: 首次接收") {
+	if !strings.Contains(out, "Ours     接收 seq 42 tx 0: 首次接收") {
 		t.Fatalf("missing first line: %q", out)
 	}
-	if !strings.Contains(out, "Peer     接收 seq 42: 延迟  12.00ms (相对于 Ours)") {
+	if !strings.Contains(out, "Peer     接收 seq 42 tx 0: 延迟  12.00ms (相对于 Ours)") {
 		t.Fatalf("missing lag line: %q", out)
 	}
 	if strings.Contains(out, "Tiny") {
@@ -89,5 +89,38 @@ func observation(name string, sequence uint64, received, feedTime time.Time) fee
 	return feed.Update{
 		Kind: feed.UpdateObservation, Endpoint: name, At: received,
 		Sequence: sequence, BlockHash: "0x01", FeedTimestamp: feedTime, FrameBytes: 100,
+	}
+}
+
+func TestRunnerMatchesPerTxIndex(t *testing.T) {
+	start := time.Unix(100, 0)
+	runner := New(Config{EndpointNames: []string{"A", "B"}, MaxTracked: 100}, start)
+	// Same seq, two tx indexes — must be independent race keys.
+	runner.Add(observationTx("A", 10, 0, start, start))
+	runner.Add(observationTx("B", 10, 0, start.Add(time.Millisecond), start))
+	runner.Add(observationTx("B", 10, 1, start, start))
+	runner.Add(observationTx("A", 10, 1, start.Add(2*time.Millisecond), start))
+	report := runner.Snapshot(start.Add(time.Second))
+	if report.UniqueEvents != 2 || report.CommonEvents != 2 {
+		t.Fatalf("want 2 unique/common (seq,tx) keys, got %+v", report)
+	}
+	var a, b *EndpointReport
+	for i := range report.Endpoints {
+		if report.Endpoints[i].Name == "A" {
+			a = &report.Endpoints[i]
+		}
+		if report.Endpoints[i].Name == "B" {
+			b = &report.Endpoints[i]
+		}
+	}
+	if a == nil || b == nil || a.Wins != 1 || b.Wins != 1 {
+		t.Fatalf("want split wins, A=%+v B=%+v", a, b)
+	}
+}
+
+func observationTx(name string, sequence uint64, tx uint32, received, feedTime time.Time) feed.Update {
+	return feed.Update{
+		Kind: feed.UpdateObservation, Endpoint: name, At: received,
+		Sequence: sequence, TxIndex: tx, BlockHash: "0x01", FeedTimestamp: feedTime, FrameBytes: 100,
 	}
 }

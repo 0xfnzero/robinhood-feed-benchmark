@@ -131,8 +131,7 @@ func tuneDirectTCP(conn net.Conn) {
 
 func consumeDirect(ctx context.Context, name string, conn net.Conn, maxAge time.Duration, output chan<- Update) (bool, error) {
 	progress := false
-	// Dedup (sequence, ordinal); emit observation on first ITEM per sequence.
-	seenSeq := make(map[uint64]struct{}, 4096)
+	// Dedup (sequence, ordinal); emit every ITEM.
 	seenItem := make(map[[2]uint64]struct{}, 8192)
 	buf := make([]byte, 0, 256<<10)
 	tmp := make([]byte, 64<<10)
@@ -193,11 +192,6 @@ func consumeDirect(ctx context.Context, name string, conn net.Conn, maxAge time.
 				continue
 			}
 			seenItem[key] = struct{}{}
-			// First ITEM for this sequence drives first-arrival race.
-			if _, ok := seenSeq[frame.Sequence]; ok {
-				continue
-			}
-			seenSeq[frame.Sequence] = struct{}{}
 			obs := ObservationFromDirectITEM(frame, receivedAt)
 			age := receivedAt.Sub(obs.FeedTimestamp)
 			if maxAge > 0 && (age < -maxAge || age > maxAge) {
@@ -209,6 +203,7 @@ func consumeDirect(ctx context.Context, name string, conn net.Conn, maxAge time.
 				Endpoint:      name,
 				At:            receivedAt,
 				Sequence:      obs.SequenceNumber,
+				TxIndex:       obs.TxIndex,
 				BlockHash:     obs.BlockHash,
 				FeedTimestamp: obs.FeedTimestamp,
 				FrameBytes:    frame.OuterSize,

@@ -11,12 +11,15 @@ import (
 	"time"
 )
 
-// IsRBH1Endpoint reports whether the endpoint is an RBH1 binary TCP stream.
+// IsRBH1Endpoint reports whether the endpoint is an RBH1 binary TCP/UDP stream.
 // WebSocket /bin is handled by the generic WS consumer (magic detect).
 func IsRBH1Endpoint(endpoint Endpoint) bool {
 	parsed, err := url.Parse(endpoint.URL)
 	if err != nil {
 		return false
+	}
+	if isRBH1UDP(parsed) {
+		return true
 	}
 	switch strings.ToLower(parsed.Scheme) {
 	case "rbh1", "rbh1-listen", "tcp-rbh1":
@@ -39,6 +42,10 @@ func rbh1ListenMode(parsed *url.URL) bool {
 }
 
 func runRBH1(ctx context.Context, endpoint Endpoint, maxAge time.Duration, output chan<- Update) {
+	if parsed, err := url.Parse(endpoint.URL); err == nil && isRBH1UDP(parsed) {
+		runRBH1UDP(ctx, endpoint, maxAge, output)
+		return
+	}
 	delay := reconnectMinimum
 	for {
 		if !send(ctx, output, Update{Kind: UpdateConnecting, Endpoint: endpoint.Name, At: time.Now()}) {
@@ -150,8 +157,6 @@ func openRBH1(ctx context.Context, endpoint Endpoint) (net.Conn, error) {
 func consumeRBH1(ctx context.Context, name string, conn net.Conn, maxAge time.Duration, output chan<- Update) (bool, error) {
 	buf := make([]byte, 0, 256<<10)
 	tmp := make([]byte, 64<<10)
-	var lastSeq uint32
-	var hasLast bool
 	progress := false
 	for {
 		if err := conn.SetReadDeadline(time.Now().Add(readTimeout)); err != nil {
@@ -177,28 +182,12 @@ func consumeRBH1(ctx context.Context, name string, conn net.Conn, maxAge time.Du
 					break
 				}
 				buf = buf[consumed:]
-				progress = true
 				if frame.Frag != nil {
-					continue // stream path should not fragment; skip stray UDP frags
-				}
-				if frame.TxIndex != 0 {
+					// Stream path should not fragment; skip stray UDP frag units.
 					continue
 				}
-				if hasLast && frame.Seq == lastSeq {
-					continue
-				}
-				lastSeq = frame.Seq
-				hasLast = true
-				observation := ObservationFromRBH1(frame)
-				age := receivedAt.Sub(observation.FeedTimestamp)
-				if age < -maxAge || age > maxAge {
-					continue
-				}
-				if !send(ctx, output, Update{
-					Kind: UpdateObservation, Endpoint: name, At: receivedAt,
-					Sequence: observation.SequenceNumber, BlockHash: observation.BlockHash,
-					FeedTimestamp: observation.FeedTimestamp, FrameBytes: frame.Size,
-				}) {
+				progress = true
+				if !emitRBH1Frame(ctx, name, frame, receivedAt, maxAge, frame.Size, output) {
 					return progress, ctx.Err()
 				}
 			}

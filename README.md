@@ -128,8 +128,13 @@ FEED_COMPARISON_DURATION=45s
 
 `RHF2` listens for a binary TCP push (`tcp://host:port`).
 `NitroFeed` connects to a Nitro JSON WebSocket (`ws://` / `wss://`).
-Set `FEED_AUTH_TOKEN_N` (alias: `FEED_TOKEN_N`) with your credential; the tool
-chooses path vs header vs Bearer from the `FEED_URL` host automatically.
+Set `FEED_AUTH_TOKEN_N` (alias: `FEED_TOKEN_N`) with your credential.
+For common hosts the tool infers header vs path vs Bearer from `FEED_URL`;
+override anytime with:
+
+- `FEED_AUTH_HEADER_N=X-Token` → custom request header
+- `FEED_AUTH_STYLE_N=bearer|header|path` → force a style
+- otherwise unknown hosts default to `Authorization: Bearer <token>`
 
 To expose an RHF2 push as a local Nitro WebSocket:
 
@@ -237,6 +242,7 @@ relative lag is always zero.
 --feed NAME=URL         Add a custom Feed; repeatable
 --feed-token NAME=TOKEN Optional token for a named Feed
 --feed-auth-header NAME=Header  Custom auth header (default Bearer)
+--feed-auth-style NAME=bearer|header|path  Force auth style (skips host inference)
 --format table|json     Output format
 --per-event             Per-event first/lag lines (default true, grpc-benchmark style)
 --tie-tolerance 0       Soft-tie window; 0 = exclusive first (grpc-benchmark)

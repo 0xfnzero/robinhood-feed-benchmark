@@ -25,7 +25,7 @@ const (
 //	NitroFeed — Nitro JSON WebSocket; URL like ws://host/feed or wss://host/feed
 //	DIRECT    — DIRECT binary TCP; URL like direct://0.0.0.0:19780
 //	NGF1      — NGF1 envelope over TCP; URL like ngf1://0.0.0.0:19780
-//	RBH1      — RBH1 binary (WSS /bin or TCP); URL like ws://host/bin or rbh1://host:19791
+//	RBH1      — RBH1 binary (WSS /bin, TCP, or UDP listen); URL like ws://host/bin, rbh1://host:19791, udp://0.0.0.0:19792
 func ResolveFormat(format, feedURL, token, authHeader string) (Endpoint, error) {
 	name := strings.TrimSpace(format)
 	address := strings.TrimSpace(feedURL)
@@ -73,8 +73,8 @@ func ResolveFormat(format, feedURL, token, authHeader string) (Endpoint, error) 
 		if strings.HasPrefix(strings.ToLower(address), "tcp://") {
 			address = "rbh1://" + address[len("tcp://"):]
 		}
-		if err := requireURLScheme(address, "ws", "wss", "rbh1", "rbh1-listen", "tcp-rbh1"); err != nil {
-			return Endpoint{}, fmt.Errorf("%s: %w (example: %s or rbh1://127.0.0.1:19791)", VendorRBH1, err, RBH1DefaultURL)
+		if err := requireURLScheme(address, "ws", "wss", "rbh1", "rbh1-listen", "tcp-rbh1", "udp", "udp-rbh1", "rbh1-udp"); err != nil {
+			return Endpoint{}, fmt.Errorf("%s: %w (example: %s, rbh1://127.0.0.1:19791, or udp://0.0.0.0:19792)", VendorRBH1, err, RBH1DefaultURL)
 		}
 		endpoint := Endpoint{
 			Name:       VendorRBH1,
@@ -85,7 +85,7 @@ func ResolveFormat(format, feedURL, token, authHeader string) (Endpoint, error) 
 		if header == "" && (strings.HasPrefix(strings.ToLower(address), "ws://") || strings.HasPrefix(strings.ToLower(address), "wss://")) {
 			endpoint.AuthHeader = "X-Token"
 		}
-		return ApplyHostAuth(endpoint)
+		return ApplyAuth(endpoint)
 
 	case "nitrofeed", "nitro":
 		if address == "" {
@@ -100,7 +100,7 @@ func ResolveFormat(format, feedURL, token, authHeader string) (Endpoint, error) 
 			Token:      credential,
 			AuthHeader: header,
 		}
-		return ApplyHostAuth(endpoint)
+		return ApplyAuth(endpoint)
 
 	default:
 		return Endpoint{}, fmt.Errorf("unknown feed format %q (supported: %s, %s, %s, %s, %s)", format, VendorRHF2, VendorNitroFeed, VendorDirect, VendorNGF1, VendorRBH1)

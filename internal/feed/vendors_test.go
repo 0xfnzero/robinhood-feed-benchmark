@@ -27,11 +27,11 @@ func TestResolveFormatRHF2RejectsWebSocket(t *testing.T) {
 }
 
 func TestResolveFormatNitroFeed(t *testing.T) {
-	endpoint, err := ResolveFormat("NitroFeed", "ws://127.0.0.1:9642/feed", "secret", "X-User-ID")
+	endpoint, err := ResolveFormat("NitroFeed", "ws://127.0.0.1:9642/feed", "secret", "X-Token")
 	if err != nil {
 		t.Fatal(err)
 	}
-	if endpoint.Name != VendorNitroFeed || endpoint.URL != "ws://127.0.0.1:9642/feed" || endpoint.Token != "secret" || endpoint.AuthHeader != "X-User-ID" {
+	if endpoint.Name != VendorNitroFeed || endpoint.URL != "ws://127.0.0.1:9642/feed" || endpoint.Token != "secret" || endpoint.AuthHeader != "X-Token" {
 		t.Fatalf("unexpected endpoint: %+v", endpoint)
 	}
 }

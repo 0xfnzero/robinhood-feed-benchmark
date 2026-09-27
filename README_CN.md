@@ -142,8 +142,12 @@ FEED_COMPARISON_DURATION=45s
 
 `RHF2` 监听二进制 TCP 推送（`tcp://host:port`）。
 `NitroFeed` 连接 Nitro JSON WebSocket（`ws://` / `wss://`）。
-凭证统一填 `FEED_AUTH_TOKEN_N`（兼容别名 `FEED_TOKEN_N`）；工具会根据
-`FEED_URL` 的域名自动选择路径拼接、请求头或 Bearer。
+凭证统一填 `FEED_AUTH_TOKEN_N`（兼容别名 `FEED_TOKEN_N`）。
+常见域名会根据 `FEED_URL` 自动选择请求头 / 路径拼接 / Bearer；需要时可覆盖：
+
+- `FEED_AUTH_HEADER_N=X-Token` → 自定义请求头
+- `FEED_AUTH_STYLE_N=bearer|header|path` → 强制鉴权方式
+- 未知域名默认 `Authorization: Bearer <token>`
 
 把 RHF2 转成本地 Nitro WebSocket：
 
@@ -251,6 +255,7 @@ RANK  FEED      STATUS  SEQS  RATE    COVERAGE  MATCHED  WIN RATE  P25 LAG  P50 
 --feed NAME=URL         增加自定义 Feed，可重复
 --feed-token NAME=TOKEN 可选 Token
 --feed-auth-header NAME=Header  自定义鉴权头（默认 Bearer）
+--feed-auth-style NAME=bearer|header|path  强制鉴权方式（跳过域名推断）
 --format table|json     输出格式
 --per-event             逐笔打印首达/延迟（默认开启，grpc-benchmark 风格）
 --tie-tolerance 0       软并列容差；默认 0=互斥首达（grpc-benchmark）

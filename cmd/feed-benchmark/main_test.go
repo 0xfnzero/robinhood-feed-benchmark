@@ -83,6 +83,53 @@ func TestBuildEndpointsAuthTokenAliasAndHostAuth(t *testing.T) {
 	}
 }
 
+func TestBuildEndpointsAuthTokenAliasAndBearer(t *testing.T) {
+	clearFeedEnvironment(t)
+	t.Setenv("FEED_VENDOR_1", "NitroFeed")
+	t.Setenv("FEED_NAME_1", "Cloud")
+	t.Setenv("FEED_URL_1", "wss://feed.example.com/v1/feed")
+	t.Setenv("FEED_AUTH_TOKEN_1", "api-key")
+
+	endpoints, err := buildEndpoints(options{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(endpoints) != 1 || endpoints[0].AuthHeader != "" || endpoints[0].Token != "api-key" {
+		t.Fatalf("unexpected endpoint: %+v", endpoints)
+	}
+}
+
+func TestBuildEndpointsAuthHeaderAndPathStyle(t *testing.T) {
+	clearFeedEnvironment(t)
+	t.Setenv("FEED_VENDOR_1", "NitroFeed")
+	t.Setenv("FEED_NAME_1", "Cloud")
+	t.Setenv("FEED_URL_1", "wss://feed.example.com/ws")
+	t.Setenv("FEED_AUTH_TOKEN_1", "api-key")
+	t.Setenv("FEED_AUTH_HEADER_1", "X-Token")
+
+	endpoints, err := buildEndpoints(options{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(endpoints) != 1 || endpoints[0].AuthHeader != "X-Token" || endpoints[0].Token != "api-key" {
+		t.Fatalf("unexpected header endpoint: %+v", endpoints)
+	}
+
+	clearFeedEnvironment(t)
+	t.Setenv("FEED_URL_1", "wss://feed.example.com/ws")
+	t.Setenv("FEED_NAME_1", "PathFeed")
+	t.Setenv("FEED_AUTH_TOKEN_1", "tok")
+	t.Setenv("FEED_AUTH_STYLE_1", "path")
+
+	endpoints, err = buildEndpoints(options{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(endpoints) != 1 || endpoints[0].Token != "" || endpoints[0].URL != "wss://feed.example.com/ws/tok" {
+		t.Fatalf("unexpected path endpoint: %+v", endpoints)
+	}
+}
+
 func clearFeedEnvironment(t *testing.T) {
 	t.Helper()
 	for index := 1; index <= 64; index++ {
@@ -92,6 +139,7 @@ func clearFeedEnvironment(t *testing.T) {
 		t.Setenv("FEED_TOKEN_"+suffix, "")
 		t.Setenv("FEED_AUTH_TOKEN_"+suffix, "")
 		t.Setenv("FEED_AUTH_HEADER_"+suffix, "")
+		t.Setenv("FEED_AUTH_STYLE_"+suffix, "")
 		t.Setenv("FEED_VENDOR_"+suffix, "")
 	}
 }

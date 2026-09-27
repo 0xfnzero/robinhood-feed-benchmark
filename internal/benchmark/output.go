@@ -83,7 +83,7 @@ func WriteGrpcStyleReport(writer io.Writer, report Report) error {
 			item.Name, item.WinRatePct, item.BehindMeanLagMS, item.MeanLagMS, item.BestLeadMS)
 	}
 	fmt.Fprintln(writer, "────────────────────────────────────────────────────────────────────────────────")
-	fmt.Fprintf(writer, "Duration: %.1fs | unique seqs: %d | common seqs: %d\n\n",
+	fmt.Fprintf(writer, "Duration: %.1fs | unique events: %d | common events: %d\n\n",
 		report.DurationSec, report.UniqueEvents, report.CommonEvents)
 
 	table := tabwriter.NewWriter(writer, 0, 4, 2, ' ', 0)
